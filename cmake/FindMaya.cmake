@@ -2,6 +2,8 @@
 if(NOT DEFINED MAYA_VERSION)
 	set(MAYA_VERSION 2022 CACHE STRING "Maya version")
 endif()
+# Avoid unused variable warning if MAYA_VERSION was passed via command line
+set(MAYA_VERSION ${MAYA_VERSION})
 
 
 if((UNIX AND NOT APPLE) AND (NOT DEFINED ENV{PY_VER_A} OR NOT PY_VER_A))
