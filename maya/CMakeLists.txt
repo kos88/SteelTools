@@ -1,19 +1,9 @@
 set(HEADERS
-    # --- Core
-    ../core/SCorneaPush.h
-    ../core/SStickyLips.h
-
-    # --- Maya
     CorneaPushNode.h
     StickyLipsNode.h
 )
 
 set(SOURCES
-    # --- Core
-    ../core/SCorneaPush.cpp
-    ../core/SStickyLips.cpp
-
-    # --- Maya
     CorneaPushNode.cpp
     StickyLipsNode.cpp
 )
@@ -34,10 +24,9 @@ set_property(TARGET ${MODULE_NAME} PROPERTY CXX_STANDARD 23)
 
 # Add the paths where the includes are
 target_include_directories(${MODULE_NAME}
-        PUBLIC
+        PRIVATE
         ${MAYA_INCLUDE_DIR}
-        ${PLUGIN_ROOT}/../core
-        ${PLUGIN_ROOT}/../extern
+        ${PLUGIN_ROOT}/extern
 )
 
 # Set options like preprocessor definitions
@@ -56,7 +45,7 @@ set(MAYA_LIBRARIES
         "OpenMayaAnim.lib"
         "Foundation.lib")
 
-target_link_libraries(${MODULE_NAME} PUBLIC ${MAYA_LIBRARIES})
+target_link_libraries(${MODULE_NAME} PUBLIC ${MAYA_LIBRARIES} SteelTools)
 
 # Install the maya file and pmp in the right directories
 set(MAYA_MLL_OUTPUT ${CMAKE_INSTALL_PREFIX}/maya/plug-ins/${MAYA_VERSION})  # destination for the maya file

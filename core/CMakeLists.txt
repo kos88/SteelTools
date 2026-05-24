@@ -1,3 +1,6 @@
+# Project implementing core logic for Steel Face Tools
+# The library is independent from any DCC and is meant to be the
+# core processing logic for various face deformation rigging tools
 set(HEADERS
         SCorneaPush.h
         SStickyLips.h
@@ -8,13 +11,11 @@ set(SOURCES
         SStickyLips.cpp
 )
 
-set(MODULE_NAME SteelTools)
-add_library(${MODULE_NAME} SHARED ${SOURCES})
-option(BUILD_PLAYGROUND OFF)
-message(STATUS "Build playground executable ${BUILD_PLAYGROUND}")
+add_library(SteelTools STATIC ${SOURCES} ${HEADERS})
+target_include_directories(SteelTools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+option(BUILD_PLAYGROUND "Build playground executable" OFF)
 if(BUILD_PLAYGROUND)
-add_executable(${MODULE_NAME}
-    devToolsPlayground.cpp
-    )
+    add_executable(SteelToolsPlayground devToolsPlayground.cpp)
+    target_link_libraries(SteelToolsPlayground PRIVATE SteelTools)
 endif()
