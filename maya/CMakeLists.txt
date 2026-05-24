@@ -1,11 +1,13 @@
 set(HEADERS
     CorneaPushNode.h
     StickyLipsNode.h
+    SteelMayaCommon.h
 )
 
 set(SOURCES
     CorneaPushNode.cpp
     StickyLipsNode.cpp
+    pluginMain.cpp
 )
 
 # If no maya version is set, raise an error

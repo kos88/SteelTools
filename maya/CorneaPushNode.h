@@ -2,15 +2,30 @@
 // Created by Costantino Fracas on 24/05/2026.
 //
 
-#ifndef DEV_BCORNEAPUSH_H
-#define DEV_BCORNEAPUSH_H
+#ifndef CORNEA_PUSH_NODE_H
+#define CORNEA_PUSH_NODE_H
 
+#include <maya/MPxDeformerNode.h>
 
+class CorneaPushNode : public MPxDeformerNode {
+public:
+    CorneaPushNode() = default;
+    ~CorneaPushNode() override = default;
 
-class CorneaPushNode {
+    static void* creator();
+    static MStatus initialize();
 
+    MStatus deform(MDataBlock& block,
+                   MItGeometry& iter,
+                   const MMatrix& mat,
+                   unsigned int multiIndex) override;
+
+    static MTypeId id;
+    static MString name;
+
+    // Attributes
+    static MObject aUndeformedEyeball;
+    static MObject aDeformedEyeball;
 };
 
-
-
-#endif //DEV_BCORNEAPUSH_H
+#endif // CORNEA_PUSH_NODE_H
