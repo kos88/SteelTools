@@ -51,7 +51,24 @@ target_link_libraries(${MODULE_NAME} PUBLIC ${MAYA_LIBRARIES} SteelTools)
 
 # Install the maya file and pmp in the right directories
 set(MAYA_MLL_OUTPUT ${CMAKE_INSTALL_PREFIX}/maya/plug-ins/${MAYA_VERSION})  # destination for the maya file
+
+# Copy the mll to the correct output location
 install(TARGETS ${MODULE_NAME}
         RUNTIME DESTINATION
         ${MAYA_MLL_OUTPUT})
-message(STATUS "maya plugin will be installed to: ${MAYA_MLL_OUTPUT}")
+
+# Generate and install the .mod file (runs during same install)
+set(PLATFORM "win64")
+set(MAYA_ROOT_PATH "./maya")
+set(PLUGINS_PATH "plug-ins/${MAYA_VERSION}")
+
+install(CODE "
+    set(MAYA_VERSION \"${MAYA_VERSION}\")
+    set(PLATFORM \"${PLATFORM}\")
+    set(MODULE_NAME \"${MODULE_NAME}\")
+    set(MAYA_ROOT_PATH \"${MAYA_ROOT_PATH}\")
+    set(CMAKE_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\")
+    include(\"${CMAKE_CURRENT_SOURCE_DIR}/../cmake/GenerateMayaMod.cmake\")
+")
+
+message(STATUS "maya plugin will be installed to: ${MAYA_MLL_OUTPUT} ${MODULE_NAME}")

@@ -1,0 +1,76 @@
+# CMake build artifacts
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+*.cmake
+
+# Exception: Keep custom cmake modules
+!cmake/*.cmake
+!CMakeLists.txt
+
+# C++ compiler outputs
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+*.out
+*.app
+
+# IDE - JetBrains (CLion, etc.)
+.idea/
+*.iml
+*.iws
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# OS-specific
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Build and output directories
+bin/
+lib/
+releases/
+out/
+
+# Maya plugin artifacts
+*.mll
+*.bundle
+*.mod
+
+# Unreal Engine
+Binaries/
+Intermediate/
+Saved/
+*.sln
+*.xcworkspace
+*.xcodeproj
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp

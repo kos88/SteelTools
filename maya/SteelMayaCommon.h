@@ -10,10 +10,10 @@ namespace SteelMaya {
     const unsigned int kSteelNodeIdPrefix = 0x87000;
 
     const MTypeId kStickyLipsNodeId(kSteelNodeIdPrefix | 0x01);
-    const MString kStickyLipsNodeName = "SteelStickyLips";
+    const MString kStickyLipsNodeName = "steelStickyLips";
 
     const MTypeId kCorneaPushNodeId(kSteelNodeIdPrefix | 0x02);
-    const MString kCorneaPushNodeName = "SteelCorneaPush";
+    const MString kCorneaPushNodeName = "steelCorneaPush";
 }
 
 #endif // STEEL_MAYA_COMMON_H

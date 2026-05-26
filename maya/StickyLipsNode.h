@@ -24,10 +24,11 @@ public:
     static MString name;
 
     // Attributes
-    static MObject aForwardInfluence;
-    static MObject aBackwardInfluence;
-    static MObject aDirection;
-    static MObject aEdgeLoop; 
+    static MObject s_ForwardInfluence;
+    static MObject s_BackwardInfluence;
+    static MObject s_Direction;
+    static MObject s_EdgeLoopA;
+    static MObject s_EdgeLoopB;
 };
 
 #endif // STICKY_LIPS_NODE_H
