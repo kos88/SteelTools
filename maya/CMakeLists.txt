@@ -8,6 +8,7 @@ set(SOURCES
     CorneaPushNode.cpp
     StickyLipsNode.cpp
     pluginMain.cpp
+        DebugUtils.h
 )
 
 # If no maya version is set, raise an error

@@ -12,6 +12,9 @@ public:
     StickyLipsNode() = default;
     ~StickyLipsNode() override = default;
 
+
+    static MObject s_stickyAmount;
+
     static void* creator();
     static MStatus initialize();
 
@@ -24,11 +27,16 @@ public:
     static MString name;
 
     // Attributes
+    static MObject s_stickyFalloff;
+    static MObject s_distanceThreshold;
     static MObject s_ForwardInfluence;
     static MObject s_BackwardInfluence;
     static MObject s_Direction;
     static MObject s_EdgeLoopA;
     static MObject s_EdgeLoopB;
+
+    static MString s_upperComponentTag;
+    static MString s_lowerComponentTag;
 };
 
 #endif // STICKY_LIPS_NODE_H
