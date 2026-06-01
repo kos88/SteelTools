@@ -12,9 +12,6 @@ public:
     StickyLipsNode() = default;
     ~StickyLipsNode() override = default;
 
-
-    static MObject s_stickyAmount;
-
     static void* creator();
     static MStatus initialize();
 
@@ -27,11 +24,19 @@ public:
     static MString name;
 
     // Attributes
+
+
+    static MObject s_stickyAmount;
+    static MObject s_distanceMinThreshold;
+    static MObject s_distanceMaxThreshold;
     static MObject s_stickyFalloff;
-    static MObject s_distanceThreshold;
-    static MObject s_ForwardInfluence;
-    static MObject s_BackwardInfluence;
-    static MObject s_Direction;
+
+    static MObject s_angleInfluence;
+    static MObject s_angleThreshold;
+    static MObject s_propagateSmoothness;
+    static MObject s_propagateInfluence;
+
+
     static MObject s_EdgeLoopA;
     static MObject s_EdgeLoopB;
 

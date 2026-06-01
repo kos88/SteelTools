@@ -12,6 +12,7 @@
 #include "SteelMayaCommon.h"
 
 #include <maya/MItMeshEdge.h>
+#include <maya/MItMeshVertex.h>
 #include <maya/MFnNumericAttribute.h>
 #include <maya/MFnTypedAttribute.h>
 #include <maya/MMatrix.h>
@@ -29,12 +30,19 @@
 MTypeId StickyLipsNode::id = SteelMaya::kStickyLipsNodeId;
 MString StickyLipsNode::name = SteelMaya::kStickyLipsNodeName;
 
+
 MObject StickyLipsNode::s_stickyAmount;
 MObject StickyLipsNode::s_stickyFalloff;
-MObject StickyLipsNode::s_distanceThreshold;
-MObject StickyLipsNode::s_ForwardInfluence;
-MObject StickyLipsNode::s_BackwardInfluence;
-MObject StickyLipsNode::s_Direction;
+
+MObject StickyLipsNode::s_distanceMinThreshold;
+MObject StickyLipsNode::s_distanceMaxThreshold;
+
+MObject StickyLipsNode::s_angleThreshold;
+MObject StickyLipsNode::s_angleInfluence;
+
+MObject StickyLipsNode::s_propagateSmoothness;
+MObject StickyLipsNode::s_propagateInfluence;
+
 MObject StickyLipsNode::s_EdgeLoopA;
 MObject StickyLipsNode::s_EdgeLoopB;
 
@@ -60,20 +68,6 @@ MStatus StickyLipsNode::initialize() {
     MFnNumericAttribute nAttr;
     MFnTypedAttribute tAttr;
 
-    s_distanceThreshold = nAttr.create("distanceThreshold", "dth", MFnNumericData::kFloat, 1.0);
-    nAttr.setMin(0.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_distanceThreshold);
-    attributeAffects(s_distanceThreshold, outputGeom);
-
-    s_stickyFalloff = nAttr.create("stickyFalloff", "sfl", MFnNumericData::kFloat, 1.0);
-    nAttr.setMin(0.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_stickyFalloff);
-    attributeAffects(s_stickyFalloff, outputGeom);
-
     s_stickyAmount = nAttr.create("stickyAmount", "sta", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
     nAttr.setKeyable(true);
@@ -81,23 +75,58 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_stickyAmount);
     attributeAffects(s_stickyAmount, outputGeom);
 
-    s_ForwardInfluence = nAttr.create("forwardInfluence", "fwd", MFnNumericData::kFloat, 0.0);
+    s_distanceMaxThreshold = nAttr.create("stickyMaxThreshold", "smxth", MFnNumericData::kFloat, 1.0);
+    nAttr.setMin(0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
-    addAttribute(s_ForwardInfluence);
-    attributeAffects(s_ForwardInfluence, outputGeom);
+    addAttribute(s_distanceMaxThreshold);
+    attributeAffects(s_distanceMaxThreshold, outputGeom);
 
-    s_BackwardInfluence = nAttr.create("backwardInfluence", "bwd", MFnNumericData::kFloat, 0.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_BackwardInfluence);
-    attributeAffects(s_BackwardInfluence, outputGeom);
 
-    s_Direction = nAttr.create("direction", "dir", MFnNumericData::kFloat, 0.0);
+    s_distanceMinThreshold = nAttr.create("stickyMinThreshold", "smith", MFnNumericData::kFloat, 1.0);
+    nAttr.setMin(0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
-    addAttribute(s_Direction);
-    attributeAffects(s_Direction, outputGeom);
+    addAttribute(s_distanceMinThreshold);
+    attributeAffects(s_distanceMinThreshold, outputGeom);
+
+    s_stickyFalloff = nAttr.create("stickyFalloff", "sfl", MFnNumericData::kFloat, 1.0);
+    nAttr.setMin(0.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_stickyFalloff);
+    attributeAffects(s_stickyFalloff, outputGeom);
+    //
+    //
+    // s_angleThreshold = nAttr.create("angleThreshold", "ath", MFnNumericData::kFloat, 40.0);
+    // nAttr.setMin(0.0);
+    // nAttr.setMax(180.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_angleThreshold);
+    // attributeAffects(s_angleThreshold, outputGeom);
+
+    // s_angleInfluence = nAttr.create("angleInfluence", "aif", MFnNumericData::kFloat, 1.0);
+    // // nAttr.setMin(0.0);
+    // // nAttr.setMax(1.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_angleInfluence);
+    // attributeAffects(s_angleInfluence, outputGeom);
+
+    s_propagateSmoothness = nAttr.create("propagateSmoothness", "psm", MFnNumericData::kFloat, 0.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_propagateSmoothness);
+    attributeAffects(s_propagateSmoothness, outputGeom);
+
+    s_propagateInfluence = nAttr.create("propagateInfluence", "pin", MFnNumericData::kInt, 3);
+    nAttr.setMin(0);
+    nAttr.setMax(10);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_propagateInfluence);
+    attributeAffects(s_propagateInfluence, outputGeom);
 
     // Using string for edge loop component tags
     s_EdgeLoopA = tAttr.create("edgeLoopA", "elp", MFnData::kString);
@@ -139,11 +168,16 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     const float envelope = envData.asFloat();
 
-    // float fwd = block.inputValue(s_ForwardInfluence).asFloat();
+    int propagateInfluence = block.inputValue(s_propagateInfluence).asInt();
+    float propagateSmoothness = block.inputValue(s_propagateSmoothness).asFloat();
     // float bwd = block.inputValue(s_BackwardInfluence).asFloat();
     // float dir = block.inputValue(s_Direction).asFloat();
 
-    float stickyThreshold = block.inputValue(s_distanceThreshold).asFloat();
+    float stickyMaxThreshold = block.inputValue(s_distanceMaxThreshold).asFloat();
+    float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
+    // float angleThreshold = block.inputValue(s_angleThreshold).asFloat();
+    // float angleInfluence = block.inputValue(s_angleInfluence).asFloat();
+
     float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
     float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
 
@@ -338,6 +372,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     // The virtual segment in between
     std::vector<MVector> averagedPositions(largerCount);
+    std::vector<double> slopes(largerCount);
 
     for (int largerIdx = 0; largerIdx < largerCount; ++largerIdx)
     {
@@ -352,12 +387,136 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         MVector resampledSmaller = smaller->first[smallerIdx] + (smaller->first[smallerIdx + 1] - smaller->first[smallerIdx]) * remainder;
 
         averagedPositions[largerIdx] = (larger->first[largerIdx] + resampledSmaller) * 0.5;
+
+        //
+        MVector& posA = larger->first[largerIdx];
+        MVector& posB = smaller->first[resampleOriginalIndex[largerIdx]];
+        MVector& posM = averagedPositions[largerIdx];
+
+        MVector dirA = (posA - posM).normal();
+        MVector dirB = (posB - posM).normal();
+
+        // 1 = perfectly opposing (straight open/close, full sticky)
+        // 0 = perpendicular (corner, no sticky)
+        // negative = crossing (shouldn't happen but safe)
+        double alignment = std::max(-(dirA * dirB), 0.0);
+        // MGlobal::displayInfo(MString("SlopeAt idx ") + largerIdx + " -  " + alignment);
+        slopes[largerIdx] = alignment;
     }
 
     if (__build_debug_curves)
         DebugUtils::createDebugCurve("middle", averagedPositions, true);
 
     std::unordered_map<int, MVector> mid_pos; // we need to rethink this as we can probably generate some weights directly?
+
+    // std::vector<double> weights;
+
+    // // Now for each point A-Mid-B decide the position
+    // for (int x = 0; x < largerCount; x++)
+    // {
+    //     MVector& posA = larger->first[x];
+    //     int posAMeshIndex = larger->second[x];
+    //
+    //     int smallerIdx = resampleOriginalIndex[x];
+    //     MVector& posB  = smaller->first[smallerIdx];
+    //     int posBMeshIndex = smaller->second[smallerIdx];
+    //
+    //     MVector& posM = averagedPositions[x];
+    //
+    //     // Slope proved to be hard to control in combination with distance
+    //     // // edge direction along A's loop
+    //     // int nextA = std::min(x + 1, largerCount - 1);
+    //     // MVector dirA = (larger->first[nextA] - posA).normal();
+    //     //
+    //     // // edge direction along B's loop
+    //     // int nextB = std::min(smallerIdx + 1, smallerCount - 1);
+    //     // MVector dirB = (smaller->first[nextB] - posB).normal();
+    //     //
+    //     // // 1 = edges are parallel (center, full sticky)
+    //     // // 0 = edges diverge (corner, sticky fades)
+    //     // double slopeAtPoint = std::clamp(dirA * dirB, -1.0, 1.0); // std::max(dirA * dirB, 0.0);
+    //
+    //     // MGlobal::displayInfo(MString("SlopeAt idx ") + posAMeshIndex + " -  " + slopeAtPoint);
+    //
+    //     // We'll likely not need the real distance.. or maybe we can just have the distance2?
+    //     double distance = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
+    //
+    //
+    //     // Gives nice controllable/sealable slider
+    //     double thresholdSeal = std::clamp((distance - stickyThreshold) / stickyThreshold, 0.0, 1.0);
+    //
+    //
+    //     // Angle based seems like a nice idea, but then fights with distance based ffs...
+    //     // // Get a blend to release when the angle is bigger than the threshold
+    //     // double angleRad = std::acos(slopeAtPoint);
+    //     // double angleDeg = angleRad * (180.0 / M_PI);
+    //     // double thresholdAngle = std::clamp((angleDeg - angleThreshold) / angleThreshold, 0.0, 1.0);
+    //     //
+    //     // double t = thresholdSeal + (thresholdAngle * angleInfluence * (1.0 - thresholdSeal));
+    //
+    //     // Maybe after a min or max dist has been reached, is literally a linear blend back to 0?? like anim the envelope
+    //     double t = thresholdSeal;
+    //
+    //     double blendVal = t;                          // linear
+    //     // double blendVal = t * t;                          // quadratic
+    //     // double blendVal = t * t * (3.0 - 2.0 * t);       // smoothstep
+    //     // double blendVal = t * t * (3.0 - 2.0 * t);       // smoothstep
+    //     // smootherstep (quintic) - Ken Perlin, flatter at both ends
+    //     // double blendVal = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    //     // power blend - tension controls how flat the ends are
+    //     // tension > 1 = more aggressive snap, flat shoulders
+    //     // tension < 1 = more linear
+    //     // double blendVal = 0.5 * (1.0 - std::cos(t * M_PI)); // cosine, very smooth
+    //     // double blendVal = std::pow(t, stickyFalloff);     // user-controlled
+    //
+    //     // auto easeInOut =[](double t, double easeIn, double easeOut)
+    //     // {
+    //     //     // if (t < 0.5)
+    //     //     return 0.5 * std::pow(2.0 * t, easeIn);
+    //     //     // else
+    //     //     // return 1.0 - 0.5 * std::pow(2.0 * (1.0 - t), easeOut);
+    //     // };
+    //
+    //     // double easeIn  = stickyFalloff;
+    //     // double easeOut = stickyAmount;
+    //     //
+    //     // double blendVal = easeInOut(t, easeIn, easeOut);
+    //
+    //     // if (posAMeshIndex == 4305)
+    //     //     MGlobal::displayInfo(MString("dist: ") + distance + " thresholdSeal " + thresholdSeal);
+    //
+    //
+    //     MVector blendedA = posM + blendVal * (posA - posM);
+    //     MVector blendedB = posM + blendVal * (posB - posM);
+    //
+    //     mid_pos[posAMeshIndex] = blendedA;
+    //     mid_pos[posBMeshIndex] = blendedB;
+    //
+    //
+    //
+    // }
+
+    // precompute cumulative arc length along larger loop
+    std::vector<double> arcLength(largerCount, 0.0);
+    for (int x = 1; x < largerCount; x++)
+    {
+        MVector delta = larger->first[x] - larger->first[x - 1];
+        arcLength[x] = arcLength[x - 1] + delta.length();
+    }
+    double totalLength = arcLength[largerCount - 1];
+
+    double sealSkip = stickyFalloff;
+
+    std::vector<double> blendVals(largerCount);
+    std::vector<double> slopeAtPoints(largerCount);
+
+    // seal=0 → no sticky, seal=1 → sticky up to middle
+    // double sealLength = stickyAmount * totalLength * 0.5; // symmetric, so half each side
+
+    double sealLength = stickyAmount * (totalLength * 0.5 + sealSkip) - sealSkip;
+    // seal=0 → sealLength = -sealSkip → fully open
+    // seal=1 → sealLength = totalLength*0.5 → ramp ends exactly at middle, fully sealed
+
 
     // Now for each point A-Mid-B decide the position
     for (int x = 0; x < largerCount; x++)
@@ -371,28 +530,244 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
         MVector& posM = averagedPositions[x];
 
-        // We'll likely not need the real distance.. or maybe we can just have the distance2?
-        double distance = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
+        // Slope proved to be hard to control in combination with distance
+        // edge direction along A's loop
+        int nextA = std::min(x + 1, largerCount - 1);
+        MVector dirA = (larger->first[nextA] - posA).normal();
 
-        // double blendVal = std::clamp(distance / stickyThreshold, 0.0, 1.0);
-        // double blendVal;
-        // if (distance < 1e-4)
-        // {
-        //     blendVal = 0.0; // force full seal
-        // }
+        // edge direction along B's loop
+        int nextB = std::min(smallerIdx + 1, smallerCount - 1);
+        MVector dirB = (smaller->first[nextB] - posB).normal();
+
+        // 1 = edges are parallel (center, full sticky)
+        // 0 = edges diverge (corner, sticky fades)
+        double slopeAtPoint =  std::clamp(dirA * dirB, -1.0, 1.0); // std::max(dirA * dirB, 0.0);
+
+
+        // // use prev and next on the SAME loop
+        // int prevA = std::max(x - 1, 0);
+        // int nextA = std::min(x + 1, largerCount - 1);
+        //
+        // MVector dirIn  = (larger->first[x]     - larger->first[prevA]).normal();
+        // MVector dirOut = (larger->first[nextA] - larger->first[x]).normal();
+        //
+        // // 1 = straight (center), 0 = sharp turn (corner)
+        // double slopeAtPoint = std::max(dirIn * dirOut, 0.0);
+        //
+        // MGlobal::displayInfo(MString("SlopeAt idx ") + posAMeshIndex + " -  " + slopeAtPoint);
+
+        // distance from nearest end (symmetric)
+        double distFromEnd = std::min(arcLength[x], totalLength - arcLength[x]);
+
+        // Distance from the middle point
+        double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
+        // double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2)) * (1.0 - stickyAmount);
+
+        // // inside seal zone → 0 (sticky)
+        // // inside ramp zone → linear 0→1
+        // // outside → 1 (open)
+        // double sealMask;
+        // if (distFromEnd < sealLength)
+        //     sealMask = 0.0;
+        // else if (distFromEnd < sealLength + sealSkip)
+        //     sealMask = (distFromEnd - sealLength) / sealSkip;
         // else
-        // {
-        // }
-        double blendVal = std::pow(std::clamp(distance / stickyThreshold, 0.0, 1.0), stickyFalloff);
+        //     sealMask = 1.0;
 
-        MVector blendedA = posM + blendVal * (posA - posM);
-        MVector blendedB = posM + blendVal * (posB - posM);
+        // double thresholdSeal = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
+        //
+        // // double blendVal = sealMask * thresholdSeal;
+        //
+        // // double blendVal = std::min(thresholdSeal, sealMask);
+        //
+        // blendVals[x] = thresholdSeal;
+        // slopeAtPoints[x] = slopeAtPoint;
+        // blendVals[x] = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0); // kind of bueno
+
+        // double distSignal  = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
+        // double angleSignal = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0);
+        //
+        // blendVals[x] = std::clamp(distSignal + angleSignal, 0.0, 1.0);
+
+        // double distSignal  = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
+        // double rawSignal = distSignal;
+        // double distSignal  = std::clamp((distanceFromMid - (stickyThreshold*stickyAmount)) / (stickyThreshold*stickyAmount), 0.0, 1.0);
+
+
+        // double dx = posA.x - posB.x;
+        // double dy = posA.y - posB.y;
+        // double dz = posA.z - posB.z;
+        // double actualDistance = std::sqrt(dx*dx + dy*dy + dz*dz);
+        // double stickyFactor = stickyThreshold * stickyAmount;
+        // double distanceFromMid = actualDistance * (1.0 - stickyAmount);
+        // double distSignal = std::clamp((distanceFromMid - stickyFactor) / stickyFactor, 0.0, 1.0);
+        //
+        // double angleSignal = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0);
+        // double rawSignal   = std::clamp(distSignal + angleSignal, 0.0, 1.0);
+
+
+        // blendVals[x] = std::clamp(rawSignal * stickyAmount, 0.0, 1.0);
+        // blendVals[x] = rawSignal * stickyAmount + (1.0 - stickyAmount);
+
+        // double interpolated = rawSignal * rawSignal * (3.0 - 2.0 * rawSignal);       // smoothstep
+
+        // ------- seems controllable
+        double range = stickyMaxThreshold - stickyMinThreshold;
+        double stickyMinRange = stickyMinThreshold - (range + (1.0 - stickyAmount));   // Distance where stickiness starts (min range)
+        double stickyMaxRange = stickyMaxThreshold - (range + (1.0 - stickyAmount));   // Distance where stickiness is maxed out (max range)
+
+
+        // Map distance to a 0-1 signal based on min/max range
+        double distanceSignal = std::clamp(
+            (distanceFromMid - stickyMaxRange) / (stickyMinRange - stickyMaxRange),
+            0.0,
+            1.0
+        );
+
+
+        // // Apply corner influence - slopeAtPoint already does what you need!
+        // // At center: slopeAtPoint=1 → full rawSignal
+        // // At corners: slopeAtPoint=0 → zero stickiness
+        // // float withCorners = distanceSignal * slopeAtPoint;
+        //
+        // // Or if you want angleInfluence to control how strong the effect is:
+        // double withCorners = distanceSignal * (1.0 - (angleInfluence * slopeAtPoint));
+        //
+        // // Final blend
+        // double finalStickiness = std::lerp(0.0, withCorners, stickyAmount);
+
+        // double cornerFactor = 1.0 - slopeAtPoint;  // 0 at center, 1 at corners
+        // blendVals[x] = std::clamp(distanceSignal - (cornerFactor * angleInfluence), 0.0, 1.0);
+
+        // Actually nice ease in ease out
+        // blendVals[x] = std::pow(distanceSignal, stickyFalloff) /
+        //               (std::pow(distanceSignal, stickyFalloff) + std::pow(1.0 - distanceSignal, stickyFalloff));
+
+
+        blendVals[x] = distanceSignal;
+
+        // double distSignal  = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
+        // double angleSignal = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0);
+        //
+        // double gate = distSignal >= 0.0 ? 1.0 : 0.0;
+        //
+        // blendVals[x] = std::clamp(distSignal + angleSignal * gate, 0.0, 1.0);
+
+
+        // // corners get a smaller effective threshold → release sooner
+        // double cornerMin      = 0.5;
+        // double cornerness     = 1.0 - std::clamp((slopeAtPoint - cornerMin) / (1.0 - cornerMin), 0.0, 1.0);
+        // double effectiveThreshold = stickyThreshold * (1.0 - cornerness * angleInfluence);
+        //
+        // blendVals[x]     = std::clamp((distanceFromMid - effectiveThreshold) / effectiveThreshold, 0.0, 1.0);
+        // slopeAtPoints[x] = slopeAtPoint;
+
+
+        //
+        // MVector blendedA = posM + blendVal * (posA - posM);
+        // MVector blendedB = posM + blendVal * (posB - posM);
+        //
+        // mid_pos[posAMeshIndex] = blendedA;
+        // mid_pos[posBMeshIndex] = blendedB;
+    }
+
+    // Preddy decent "smooth/relax" of the whole edge
+    int passes = std::max(1, int(stickyFalloff * 3));  // 0->1, 1->3 passes
+    double strength = std::min(1.0, stickyFalloff * 2.0);  // intensity per pass
+
+    for (int p = 0; p < passes; p++) {
+        std::vector<double> blurred = blendVals;
+        for (int x = 0; x < largerCount; x++) {
+            int left = std::max(x - 1, 0);
+            int right = std::min(x + 1, largerCount - 1);
+
+            double smoothed = blendVals[left] * 0.25 +
+                              blendVals[x] * 0.5 +
+                              blendVals[right] * 0.25;
+
+            blurred[x] = blendVals[x] * (1.0 - strength) + smoothed * strength;
+        }
+        blendVals = blurred;
+    }
+
+    // backward pass first
+    // forward pass
+    // for (int x = 1; x < largerCount; x++)
+    // {
+    //     double worldDist = (larger->first[x] - larger->first[x - 1]).length();
+    //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
+    //     double maxDelta  = maxSlope * worldDist;
+    //     blendVals[x]     = std::min(blendVals[x], blendVals[x - 1] + maxDelta);
+    // }
+    //
+    // // backward pass
+    // for (int x = largerCount - 2; x >= 0; x--)
+    // {
+    //     double worldDist = (larger->first[x + 1] - larger->first[x]).length();
+    //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
+    //     double maxDelta  = maxSlope * worldDist;
+    //     blendVals[x]     = std::min(blendVals[x], blendVals[x + 1] + maxDelta);
+    // }
+
+
+    // clamp max slope between neighbors in world space
+    // maxSlope = max change in blendVal per unit of arc length
+    // double maxSlope = 1.0 / sealSkip; // sealSkip = world distance over which blend can go 0→1
+
+    // double cornerRelax = angleInfluence;
+
+    // // 1. corner relaxation FIRST - set the floor at corners
+    // for (int x = 0; x < largerCount; x++)
+    // {
+    //     double cornerMin   = 0.5;
+    //     double cornerness  = 1.0 - std::clamp((slopeAtPoints[x] - cornerMin) / (1.0 - cornerMin), 0.0, 1.0);
+    //     double cornerFloor = std::pow(cornerness, cornerRelax);
+    //     blendVals[x]       = std::max(blendVals[x], cornerFloor);
+    // }
+    //
+    // // 2. forward pass - spread values, corners now seed high values outward
+    // for (int x = 1; x < largerCount; x++)
+    // {
+    //     double worldDist = (larger->first[x] - larger->first[x - 1]).length();
+    //     double maxDelta  = worldDist / sealSkip;
+    //     blendVals[x]     = std::max(blendVals[x], blendVals[x - 1] - maxDelta); // spread high values
+    //     blendVals[x]     = std::min(blendVals[x], blendVals[x - 1] + maxDelta); // limit steep rises
+    // }
+    //
+    // // 3. backward pass
+    // for (int x = largerCount - 2; x >= 0; x--)
+    // {
+    //     double worldDist = (larger->first[x + 1] - larger->first[x]).length();
+    //     double maxDelta  = worldDist / sealSkip;
+    //     blendVals[x]     = std::max(blendVals[x], blendVals[x + 1] - maxDelta);
+    //     blendVals[x]     = std::min(blendVals[x], blendVals[x + 1] + maxDelta);
+    // }
+
+    std::unordered_map<int, MVector> edgeTargetPos; // the "middle" position each edge vertex is moving toward
+
+    for (int x = 0; x < largerCount; x++)
+    {
+        MVector& posA = larger->first[x];
+        int posAMeshIndex = larger->second[x];
+
+        int smallerIdx = resampleOriginalIndex[x];
+        MVector& posB  = smaller->first[smallerIdx];
+        int posBMeshIndex = smaller->second[smallerIdx];
+
+        MVector& posM = averagedPositions[x];
+
+        double blendVal = blendVals[x];
+
+
+        MVector blendedA = posA + blendVal * (posM - posA);
+        MVector blendedB = posB + blendVal * (posM - posB);
 
         mid_pos[posAMeshIndex] = blendedA;
         mid_pos[posBMeshIndex] = blendedB;
 
-
-
+        // Store the full 100% target (posM) for neighbor propagation
+        edgeTargetPos[posAMeshIndex] = blendedA;
+        edgeTargetPos[posBMeshIndex] = blendedB;
     }
 
 
@@ -419,6 +794,80 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     //     // subIter.setPosition(pt);
     // }
 
+
+    // ------------------ blend weights ??
+std::unordered_map<int, double> vertexWeights;
+std::unordered_map<int, MVector> vertexTargets;
+std::unordered_set<int> edgeVertices;
+
+for (int x = 0; x < largerCount; x++)
+{
+    int posAMeshIndex = larger->second[x];
+    int posBMeshIndex = smaller->second[resampleOriginalIndex[x]];
+
+    vertexWeights[posAMeshIndex] = 1.0;
+    vertexWeights[posBMeshIndex] = 1.0;
+    vertexTargets[posAMeshIndex] = edgeTargetPos[posAMeshIndex];
+    vertexTargets[posBMeshIndex] = edgeTargetPos[posBMeshIndex];
+    edgeVertices.insert(posAMeshIndex);
+    edgeVertices.insert(posBMeshIndex);
+}
+
+int propagationPasses = propagateInfluence;
+double propagationFalloff = propagateSmoothness;
+MItMeshVertex neighborIter(meshObj);
+
+for (int pass = 0; pass < propagationPasses; pass++)
+{
+    std::unordered_map<int, double>  newWeights = vertexWeights;
+    std::unordered_map<int, MVector> newTargets = vertexTargets;
+
+    for (const auto& [idx, weight] : vertexWeights)
+    {
+        if (weight <= 0.01) continue;
+
+        int prevIdx = 0;
+        neighborIter.setIndex(idx, prevIdx);
+        MIntArray neighborList;
+        neighborIter.getConnectedVertices(neighborList);
+
+        for (int i = 0; i < (int)neighborList.length(); i++)
+        {
+            int neighborIdx = neighborList[i];
+
+            if (edgeVertices.count(neighborIdx)) continue;  // never overwrite edge verts
+
+            double propagatedWeight = weight * propagationFalloff;
+            auto it = newWeights.find(neighborIdx);
+            if (it == newWeights.end() || propagatedWeight > it->second)
+            {
+                newWeights[neighborIdx] = propagatedWeight;
+                newTargets[neighborIdx] = vertexTargets[idx];
+            }
+        }
+    }
+    vertexWeights = std::move(newWeights);
+    vertexTargets = std::move(newTargets);
+}
+
+// Apply
+MItMeshVertex vIt(meshObj);
+for (const auto& [idx, weight] : vertexWeights)
+{
+    if (edgeVertices.count(idx)) continue;
+
+    int prevIdx = 0;
+    vIt.setIndex(idx, prevIdx);
+    MVector originalPos(vIt.position(MSpace::kWorld));
+
+    MVector target = vertexTargets.count(idx) ? vertexTargets[idx] : originalPos;
+    mid_pos[idx] = originalPos + weight * (target - originalPos);
+}
+
+    // ------------------------------------------
+
+
+
     // iterate through each point in the geometry
     //
     int count = 0;
@@ -427,8 +876,9 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         auto meshVtxIndex = iter.index();
         if (mid_pos.contains(meshVtxIndex))
         {
+            MPoint pt = iter.position();
             const auto& newP = mid_pos[meshVtxIndex];
-            iter.setPosition({newP.x, newP.y, newP.z});
+            iter.setPosition(pt + (newP - pt) * envelope);
             count++;
             // MGlobal::displayInfo(MString("moving mesh idx: ") + subIter.index() + " to " + newP.x + ", " + newP.y  + ", " + newP.z);
         }
@@ -458,23 +908,23 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     // iterate through each point in the geometry
     //
-    for ( ; !iter.isDone(); iter.next())
-    {
-        MPoint pt = iter.position();
-        // MGlobal::displayInfo(MString("mesh idx: ") + iter.index());
-        // pt *= omatinv;
-
-        const float weight = weightValue(block, multiIndex,iter.index());
-
-        // offset algorithm
-        //
-        pt.y = pt.y + envelope * weight + 10;
-        //
-        // end of offset algorithm
-
-        // pt *= omat;
-        iter.setPosition(pt);
-    }
+    // for ( ; !iter.isDone(); iter.next())
+    // {
+    //     MPoint pt = iter.position();
+    //     // MGlobal::displayInfo(MString("mesh idx: ") + iter.index());
+    //     // pt *= omatinv;
+    //
+    //     const float weight = weightValue(block, multiIndex,iter.index());
+    //
+    //     // offset algorithm
+    //     //
+    //     pt.y = pt.y + envelope * weight + 10;
+    //     //
+    //     // end of offset algorithm
+    //
+    //     // pt *= omat;
+    //     iter.setPosition(pt);
+    // }
 
 
 
