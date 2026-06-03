@@ -53,5 +53,37 @@ namespace DebugUtils
 
         MGlobal::executePythonCommandOnIdle(cmd.c_str());
     }
+
+    inline void createDebugLocator(const std::string& name, const MVector& point, const MVector& up_vector, const double scale)
+    {
+        /*
+        print in the output window the python command to create a locator at the specified point..
+        */
+        char debug_locator_msg[2048];
+        sprintf_s(debug_locator_msg,
+
+    "scale = %f\n\
+loc = cmds.spaceLocator(n=\"%s\")[0]\n\
+cmds.setAttr(\"{}.localScaleX\".format(loc), scale)\n\
+cmds.setAttr(\"{}.localScaleY\".format(loc), scale)\n\
+cmds.setAttr(\"{}.localScaleZ\".format(loc), scale)\n\
+loc_up = cmds.spaceLocator(n=\"%s_UP\")[0]\n\
+cmds.setAttr(\"{}.localScaleX\".format(loc_up), scale)\n\
+cmds.setAttr(\"{}.localScaleY\".format(loc_up), scale)\n\
+cmds.setAttr(\"{}.localScaleZ\".format(loc_up), scale)\n\
+cmds.xform(loc_up, t=(%f, %f, %f))\n\
+cmds.parent(loc_up, loc)\n\
+cmds.xform(loc, t=(%f, %f, %f))\n\n", scale,
+                                          name.c_str(),
+                                          name.c_str(),
+                                          up_vector[0],
+                                          up_vector[1],
+                                          up_vector[2],
+                                          point[0],
+                                          point[1],
+                                          point[2]);
+
+        MGlobal::executePythonCommandOnIdle(debug_locator_msg);
+    }
 }
 #endif //STEELFACETOOLS_DEBUGUTILS_H

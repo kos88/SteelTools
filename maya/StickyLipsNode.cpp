@@ -37,8 +37,10 @@ MObject StickyLipsNode::s_stickyFalloff;
 MObject StickyLipsNode::s_distanceMinThreshold;
 MObject StickyLipsNode::s_distanceMaxThreshold;
 
-MObject StickyLipsNode::s_angleThreshold;
-MObject StickyLipsNode::s_angleInfluence;
+MObject StickyLipsNode::s_cornerAutoRelax;
+MObject StickyLipsNode::s_cornerAutoRelaxStartAngle;
+MObject StickyLipsNode::s_cornerAutoRelaxEndAngle;
+MObject StickyLipsNode::s_cornerAutoRelaxDistance;
 
 MObject StickyLipsNode::s_propagateSmoothness;
 MObject StickyLipsNode::s_propagateInfluence;
@@ -114,6 +116,38 @@ MStatus StickyLipsNode::initialize() {
     // addAttribute(s_angleInfluence);
     // attributeAffects(s_angleInfluence, outputGeom);
 
+    s_cornerAutoRelax = nAttr.create("cornerAutoRelax", "carx", MFnNumericData::kFloat, 1.0);
+    nAttr.setMin(0.0);
+    nAttr.setMax(1.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_cornerAutoRelax);
+    attributeAffects(s_cornerAutoRelax, outputGeom);
+
+    s_cornerAutoRelaxStartAngle = nAttr.create("cornerAutoRelaxStartAngle", "crsa", MFnNumericData::kFloat, 20.0);
+    nAttr.setMin(0.0);
+    nAttr.setMax(90.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_cornerAutoRelaxStartAngle);
+    attributeAffects(s_cornerAutoRelaxStartAngle, outputGeom);
+
+    s_cornerAutoRelaxEndAngle = nAttr.create("cornerAutoRelaxEndAngle", "crea", MFnNumericData::kFloat, 45.0);
+    nAttr.setMin(0.0);
+    nAttr.setMax(90.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_cornerAutoRelaxEndAngle);
+    attributeAffects(s_cornerAutoRelaxEndAngle, outputGeom);
+
+    s_cornerAutoRelaxDistance = nAttr.create("cornerAutoRelaxDistance", "crd", MFnNumericData::kFloat, 0.3);
+    nAttr.setMin(0.0);
+    nAttr.setMax(1.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_cornerAutoRelaxDistance);
+    attributeAffects(s_cornerAutoRelaxDistance, outputGeom);
+
     s_propagateSmoothness = nAttr.create("propagateSmoothness", "psm", MFnNumericData::kFloat, 0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
@@ -177,6 +211,12 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
     // float angleThreshold = block.inputValue(s_angleThreshold).asFloat();
     // float angleInfluence = block.inputValue(s_angleInfluence).asFloat();
+
+
+    float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat(); // main influence of corner relax
+    float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat(); // the angle between where the relax starts
+    float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat(); // the angle between where the relax is at it's peak
+    float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat(); // the percent of half segment the corner relax propagates
 
     float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
     float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
@@ -505,43 +545,83 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     }
     double totalLength = arcLength[largerCount - 1];
 
-    double sealSkip = stickyFalloff;
+    int leftCornerAngleIndex = -1;
+    int rightCornerAngleIndex = -1;
+    double cornerDistance = (totalLength / 2.0) * cornerAutoRelaxDistance;
+
+    for (int j = 0; j < largerCount; j++)
+    {
+        if (arcLength[j] <= cornerDistance)
+            leftCornerAngleIndex = j;
+        if (arcLength[j] >= totalLength - cornerDistance) {
+            rightCornerAngleIndex = j;
+            break;
+        }
+    }
+
+    // Compute slopes using startCornerIdx and endCornerIdx
+    MVector startDirA = (larger->first[leftCornerAngleIndex] - larger->first[0]).normal();
+    MVector startDirB = (smaller->first[resampleOriginalIndex[leftCornerAngleIndex]] - smaller->first[resampleOriginalIndex[0]]).normal();
+    double startSlopeDot = std::clamp(startDirA * startDirB, -1.0, 1.0);
+    double startSlopeAngle = std::acos(startSlopeDot) * 90.0 / M_PI; // yes half angle!
+
+    MVector endDirA = (larger->first[largerCount-1] - larger->first[rightCornerAngleIndex]).normal();
+    MVector endDirB = (smaller->first[resampleOriginalIndex[largerCount-1]] - smaller->first[resampleOriginalIndex[rightCornerAngleIndex]]).normal();
+    double endSlopeDot = std::clamp(endDirA * endDirB, -1.0, 1.0);
+    double endSlopeAngle = std::acos(endSlopeDot) * 90.0 / M_PI; // yes half angle!
+
+    // // Create a multiplier
+    // double startAngleInfluence = 1.0 - ((startSlopeDot + 1.0) / 2.0);
+    // double endAngleInfluence = 1.0 - ((endSlopeDot + 1.0) / 2.0);
+
+    // // Create multipliers based on start-end angle ranges
+    double startAngleInfluence = std::clamp((startSlopeAngle - cornerAutoRelaxStartAngle) / (cornerAutoRelaxEndAngle - cornerAutoRelaxStartAngle), 0.0, 1.0);
+    double endAngleInfluence = std::clamp((endSlopeAngle - cornerAutoRelaxStartAngle) / (cornerAutoRelaxEndAngle - cornerAutoRelaxStartAngle), 0.0, 1.0);
+
+    // MGlobal::displayInfo(MString("Start angle: ") + startSlopeAngle + " >" + startAngleInfluence + " End angle: " + endSlopeAngle + " >" + endAngleInfluence);
+    // MGlobal::displayInfo(MString("Start angle mult: ") + startAngleInfluence + " End angle mult: " + endAngleInfluence);
+    //
+    // // Debug output
+    // MGlobal::displayInfo(MString("Left idx: ") + leftCornerAngleIndex +
+    //                      MString(" (dist: ") + arcLength[leftCornerAngleIndex] +
+    //                      MString("), Right idx: ") + rightCornerAngleIndex +
+    //                      MString(" (dist: ") + (totalLength - arcLength[rightCornerAngleIndex]) +
+    //                      MString(")"));
+    //
+    // MGlobal::displayInfo(MString("Left B idx: ") + resampleOriginalIndex[leftCornerAngleIndex] +
+    //                      MString(", Right B idx: ") + resampleOriginalIndex[rightCornerAngleIndex]);
+
 
     std::vector<double> blendVals(largerCount);
     std::vector<double> slopeAtPoints(largerCount);
+    std::vector<double> cornerRelax(largerCount);
 
-    // seal=0 → no sticky, seal=1 → sticky up to middle
-    // double sealLength = stickyAmount * totalLength * 0.5; // symmetric, so half each side
-
-    double sealLength = stickyAmount * (totalLength * 0.5 + sealSkip) - sealSkip;
-    // seal=0 → sealLength = -sealSkip → fully open
-    // seal=1 → sealLength = totalLength*0.5 → ramp ends exactly at middle, fully sealed
 
 
     // Now for each point A-Mid-B decide the position
     for (int x = 0; x < largerCount; x++)
     {
         MVector& posA = larger->first[x];
-        int posAMeshIndex = larger->second[x];
+        // int posAMeshIndex = larger->second[x];
 
         int smallerIdx = resampleOriginalIndex[x];
         MVector& posB  = smaller->first[smallerIdx];
-        int posBMeshIndex = smaller->second[smallerIdx];
+        // int posBMeshIndex = smaller->second[smallerIdx];
 
-        MVector& posM = averagedPositions[x];
+        // MVector& posM = averagedPositions[x];
 
-        // Slope proved to be hard to control in combination with distance
-        // edge direction along A's loop
-        int nextA = std::min(x + 1, largerCount - 1);
-        MVector dirA = (larger->first[nextA] - posA).normal();
-
-        // edge direction along B's loop
-        int nextB = std::min(smallerIdx + 1, smallerCount - 1);
-        MVector dirB = (smaller->first[nextB] - posB).normal();
-
-        // 1 = edges are parallel (center, full sticky)
-        // 0 = edges diverge (corner, sticky fades)
-        double slopeAtPoint =  std::clamp(dirA * dirB, -1.0, 1.0); // std::max(dirA * dirB, 0.0);
+        // // Slope proved to be hard to control in combination with distance
+        // // edge direction along A's loop
+        // int nextA = std::min(x + 1, largerCount - 1);
+        // MVector dirA = (larger->first[nextA] - posA).normal();
+        //
+        // // edge direction along B's loop
+        // int nextB = std::min(smallerIdx + 1, smallerCount - 1);
+        // MVector dirB = (smaller->first[nextB] - posB).normal();
+        //
+        // // 1 = edges are parallel (center, full sticky)
+        // // 0 = edges diverge (corner, sticky fades)
+        // double slopeAtPoint =  std::clamp(dirA * dirB, -1.0, 1.0); // std::max(dirA * dirB, 0.0);
 
 
         // // use prev and next on the SAME loop
@@ -559,9 +639,23 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         // distance from nearest end (symmetric)
         double distFromEnd = std::min(arcLength[x], totalLength - arcLength[x]);
 
-        // Distance from the middle point
+        // Normalize it to arclen and clamp to our corner area
+        double cornerAreaInfluence = std::max(0.0, 1.0 - (distFromEnd / cornerDistance));
+
+        // Get normalized position along the curve (0 = start, 1 = end)
+        double t = arcLength[x] / totalLength;
+
+        // Blend between start and end angles based on position (angle influence is 0 when closed, towards 1 when closed)
+        double targetAngle = (1.0 - t) * startAngleInfluence + t * endAngleInfluence;
+
+        // Now multiply it by the actual angle influence (0-1) and by the angle corner auto relax
+        // We will have a gradual value from 0 to 1, guided from the angle between at corners, blending towards the middle
+        double cornerRelaxValue = cornerAreaInfluence * targetAngle * cornerAutoRelax;
+
+        // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
+
+        // Distance between A-B point to control general influence
         double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
-        // double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2)) * (1.0 - stickyAmount);
 
         // // inside seal zone → 0 (sticky)
         // // inside ramp zone → linear 0→1
@@ -644,7 +738,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         //               (std::pow(distanceSignal, stickyFalloff) + std::pow(1.0 - distanceSignal, stickyFalloff));
 
 
-        blendVals[x] = distanceSignal;
+        blendVals[x] = distanceSignal - cornerRelaxValue;
 
         // double distSignal  = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
         // double angleSignal = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0);
@@ -671,7 +765,40 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         // mid_pos[posBMeshIndex] = blendedB;
     }
 
-    // Preddy decent "smooth/relax" of the whole edge
+
+    // Remove stickyness based on the angle between corner top-bottom + 1/3 of arclen
+    // By computing A-A1 to B-B1 (and opposite) we should get a nice float to auto
+    // modulate the corner stickiness, that with distanc ebased approaches alone is not enough
+    //
+    //     ___ A1 _____ C1 ___
+    // A  /                   \  C
+    //   *                     *
+    // B  \___   ______    ___/  D
+    //         B1       D1
+    if (cornerAutoRelax > 0.0)
+    {
+        // // forward pass
+        // float interpolationDistance = totalLength / 3.0;
+        //
+        // for (int x = 1; x < largerCount; x++)
+        // {
+        //     double worldDist = (larger->first[x] - larger->first[x - 1]).length();
+        //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
+        //     double maxDelta  = maxSlope * worldDist;
+        //     blendVals[x]     = std::min(blendVals[x], blendVals[x - 1] + maxDelta);
+        // }
+        // //
+        // // // backward pass
+        // // for (int x = largerCount - 2; x >= 0; x--)
+        // // {
+        // //     double worldDist = (larger->first[x + 1] - larger->first[x]).length();
+        // //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
+        // //     double maxDelta  = maxSlope * worldDist;
+        // //     blendVals[x]     = std::min(blendVals[x], blendVals[x + 1] + maxDelta);
+        // // }
+    }
+
+    // Pretty decent "smooth/relax" of the whole edge
     int passes = std::max(1, int(stickyFalloff * 3));  // 0->1, 1->3 passes
     double strength = std::min(1.0, stickyFalloff * 2.0);  // intensity per pass
 

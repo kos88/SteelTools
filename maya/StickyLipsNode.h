@@ -23,16 +23,17 @@ public:
     static MTypeId id;
     static MString name;
 
-    // Attributes
-
-
+    // --- Attributes
     static MObject s_stickyAmount;
     static MObject s_distanceMinThreshold;
     static MObject s_distanceMaxThreshold;
     static MObject s_stickyFalloff;
 
-    static MObject s_angleInfluence;
-    static MObject s_angleThreshold;
+    static MObject s_cornerAutoRelax;
+    static MObject s_cornerAutoRelaxEndAngle;
+    static MObject s_cornerAutoRelaxStartAngle;
+    static MObject s_cornerAutoRelaxDistance;
+
     static MObject s_propagateSmoothness;
     static MObject s_propagateInfluence;
 
