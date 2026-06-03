@@ -11,6 +11,7 @@
 
 #include "SteelMayaCommon.h"
 
+#include <maya/MFnStringData.h>
 #include <maya/MItMeshEdge.h>
 #include <maya/MItMeshVertex.h>
 #include <maya/MFnNumericAttribute.h>
@@ -44,6 +45,8 @@ MObject StickyLipsNode::s_cornerAutoRelaxDistance;
 
 MObject StickyLipsNode::s_propagateSmoothness;
 MObject StickyLipsNode::s_propagateInfluence;
+
+// MObject StickyLipsNode::s_stickyAutoAnim;
 
 MObject StickyLipsNode::s_EdgeLoopA;
 MObject StickyLipsNode::s_EdgeLoopB;
@@ -162,13 +165,32 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_propagateInfluence);
     attributeAffects(s_propagateInfluence, outputGeom);
 
+
+    // s_stickyAutoAnimCache = nAttr.create("autoAnim", "aan", MFnNumericData::kFloat, 0.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_stickyAutoAnim);
+    // attributeAffects(s_stickyAutoAnim, outputGeom);
+    //
+    // s_stickyAutoAnim = nAttr.create("autoAnim", "aan", MFnNumericData::kFloat, 0.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_stickyAutoAnim);
+    // attributeAffects(s_stickyAutoAnim, outputGeom);
+
     // Using string for edge loop component tags
-    s_EdgeLoopA = tAttr.create("edgeLoopA", "elp", MFnData::kString);
+    MStatus status;
+    MFnStringData fnStringData;
+    const MObject defaultStringA = fnStringData.create(s_upperComponentTag);
+    s_EdgeLoopA = tAttr.create("edgeLoopNameA", "elpa", MFnData::kString, defaultStringA, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status)
     tAttr.setStorable(true);
     addAttribute(s_EdgeLoopA);
     attributeAffects(s_EdgeLoopA, outputGeom);
 
-    s_EdgeLoopB = tAttr.create("edgeLoopB", "elp", MFnData::kString);
+    const MObject defaultStringB = fnStringData.create(s_lowerComponentTag);
+    s_EdgeLoopB = tAttr.create("edgeLoopNameB", "elpb", MFnData::kString, defaultStringB, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status)
     tAttr.setStorable(true);
     addAttribute(s_EdgeLoopB);
     attributeAffects(s_EdgeLoopB, outputGeom);
@@ -202,24 +224,23 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     const float envelope = envData.asFloat();
 
-    int propagateInfluence = block.inputValue(s_propagateInfluence).asInt();
-    float propagateSmoothness = block.inputValue(s_propagateSmoothness).asFloat();
-    // float bwd = block.inputValue(s_BackwardInfluence).asFloat();
-    // float dir = block.inputValue(s_Direction).asFloat();
+    const int propagateInfluence = block.inputValue(s_propagateInfluence).asInt();
+    const float propagateSmoothness = block.inputValue(s_propagateSmoothness).asFloat();
 
-    float stickyMaxThreshold = block.inputValue(s_distanceMaxThreshold).asFloat();
-    float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
-    // float angleThreshold = block.inputValue(s_angleThreshold).asFloat();
-    // float angleInfluence = block.inputValue(s_angleInfluence).asFloat();
+    const float stickyMaxThreshold = block.inputValue(s_distanceMaxThreshold).asFloat();
+    const float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
 
 
-    float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat(); // main influence of corner relax
-    float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat(); // the angle between where the relax starts
-    float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat(); // the angle between where the relax is at it's peak
-    float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat(); // the percent of half segment the corner relax propagates
+    const float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat(); // main influence of corner relax
+    const float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat(); // the angle between where the relax starts
+    const float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat(); // the angle between where the relax is at it's peak
+    const float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat(); // the percent of half segment the corner relax propagates
 
-    float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
-    float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
+    const float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
+    const float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
+
+    const MString upperEdgeName = block.inputValue(s_EdgeLoopA).asString();
+    const MString lowerEdgeName = block.inputValue(s_EdgeLoopB).asString();
 
     // MObject edgeLoopAObj = block.inputValue(s_EdgeLoopA).data();
     // MFnIntArrayData fnIntArrayDataA(edgeLoopAObj);
@@ -281,31 +302,31 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // }
 
     // Validate component and types
-    const bool hasUpper = meshData.hasComponentTag(s_upperComponentTag);
-    const bool hasLower = meshData.hasComponentTag(s_lowerComponentTag);
+    const bool hasUpper = meshData.hasComponentTag(upperEdgeName);
+    const bool hasLower = meshData.hasComponentTag(lowerEdgeName);
     if (!hasUpper || !hasLower)
     {
         if (hasLower)
-            MGlobal::displayWarning(MString("Missing 1 edge component tag named: ") + s_upperComponentTag);
+            MGlobal::displayWarning(MString("Missing 1 edge component tag named: ") + upperEdgeName);
         if (hasUpper)
-            MGlobal::displayWarning(MString("Missing 1 edge component tag named:") + s_lowerComponentTag);
+            MGlobal::displayWarning(MString("Missing 1 edge component tag named:") + lowerEdgeName);
         else
-            MGlobal::displayWarning(MString("Missing 2 edge component tag named:") + s_upperComponentTag + " and " + s_lowerComponentTag);
+            MGlobal::displayWarning(MString("Missing 2 edge component tag named:") + upperEdgeName + " and " + lowerEdgeName);
 
         return MS::kFailure;
     }
-    if (meshData.componentTagType(s_upperComponentTag) != MFn::kMeshEdgeComponent) {
-        MGlobal::displayWarning(MString("Component tag:") + s_upperComponentTag + " kMeshEdgeComponent");
+    if (meshData.componentTagType(upperEdgeName) != MFn::kMeshEdgeComponent) {
+        MGlobal::displayWarning(MString("Component tag:") + upperEdgeName + " kMeshEdgeComponent");
         return MS::kFailure;
     }
-    if (meshData.componentTagType(s_lowerComponentTag) != MFn::kMeshEdgeComponent) {
-        MGlobal::displayWarning(MString("Component tag:") + s_lowerComponentTag + " kMeshEdgeComponent");
+    if (meshData.componentTagType(lowerEdgeName) != MFn::kMeshEdgeComponent) {
+        MGlobal::displayWarning(MString("Component tag:") + lowerEdgeName + " kMeshEdgeComponent");
         return MS::kFailure;
     }
 
     // Extract component data
-    MObject upperEdgeObj = meshData.componentTagContents(s_upperComponentTag);
-    MObject lowerEdgeObj = meshData.componentTagContents(s_lowerComponentTag);
+    MObject upperEdgeObj = meshData.componentTagContents(upperEdgeName);
+    MObject lowerEdgeObj = meshData.componentTagContents(lowerEdgeName);
 
     // const MFnSingleIndexedComponent fnUpper(upperEdgeObj);
     // const MFnSingleIndexedComponent fnLower(lowerEdgeObj);
@@ -392,10 +413,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     // A-B data
     std::vector<MVector>* orderedPositionsUpEdge = &pts_a.first;
-    std::vector<int>* orderedIndexToMeshIndexUpEdge = &pts_a.second;
-
     std::vector<MVector>* orderedPositionsBottomEdge = &pts_b.first;
-    std::vector<int>* orderedIndexToMeshIndexBottomEdge = &pts_b.second;
 
 
     std::vector<int> resampleOriginalIndex; // resampled point > original orderedPts pos or originalIndexes mesh index
@@ -410,10 +428,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     resampleOriginalIndex.resize(largerCount);
     originalToResampleIndex.resize(smallerCount, -1);
 
-    // The virtual segment in between
-    std::vector<MVector> averagedPositions(largerCount);
-    std::vector<double> slopes(largerCount);
-
     for (int largerIdx = 0; largerIdx < largerCount; ++largerIdx)
     {
         double lerpT      = static_cast<double>(largerIdx) * (smallerCount - 1) / (largerCount - 1);
@@ -425,116 +439,15 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         originalToResampleIndex[smallerIdx]  = largerIdx;
 
         MVector resampledSmaller = smaller->first[smallerIdx] + (smaller->first[smallerIdx + 1] - smaller->first[smallerIdx]) * remainder;
-
-        averagedPositions[largerIdx] = (larger->first[largerIdx] + resampledSmaller) * 0.5;
-
-        //
-        MVector& posA = larger->first[largerIdx];
-        MVector& posB = smaller->first[resampleOriginalIndex[largerIdx]];
-        MVector& posM = averagedPositions[largerIdx];
-
-        MVector dirA = (posA - posM).normal();
-        MVector dirB = (posB - posM).normal();
-
-        // 1 = perfectly opposing (straight open/close, full sticky)
-        // 0 = perpendicular (corner, no sticky)
-        // negative = crossing (shouldn't happen but safe)
-        double alignment = std::max(-(dirA * dirB), 0.0);
-        // MGlobal::displayInfo(MString("SlopeAt idx ") + largerIdx + " -  " + alignment);
-        slopes[largerIdx] = alignment;
     }
 
-    if (__build_debug_curves)
-        DebugUtils::createDebugCurve("middle", averagedPositions, true);
 
-    std::unordered_map<int, MVector> mid_pos; // we need to rethink this as we can probably generate some weights directly?
-
-    // std::vector<double> weights;
-
-    // // Now for each point A-Mid-B decide the position
-    // for (int x = 0; x < largerCount; x++)
-    // {
-    //     MVector& posA = larger->first[x];
-    //     int posAMeshIndex = larger->second[x];
-    //
-    //     int smallerIdx = resampleOriginalIndex[x];
-    //     MVector& posB  = smaller->first[smallerIdx];
-    //     int posBMeshIndex = smaller->second[smallerIdx];
-    //
-    //     MVector& posM = averagedPositions[x];
-    //
-    //     // Slope proved to be hard to control in combination with distance
-    //     // // edge direction along A's loop
-    //     // int nextA = std::min(x + 1, largerCount - 1);
-    //     // MVector dirA = (larger->first[nextA] - posA).normal();
-    //     //
-    //     // // edge direction along B's loop
-    //     // int nextB = std::min(smallerIdx + 1, smallerCount - 1);
-    //     // MVector dirB = (smaller->first[nextB] - posB).normal();
-    //     //
-    //     // // 1 = edges are parallel (center, full sticky)
-    //     // // 0 = edges diverge (corner, sticky fades)
-    //     // double slopeAtPoint = std::clamp(dirA * dirB, -1.0, 1.0); // std::max(dirA * dirB, 0.0);
-    //
-    //     // MGlobal::displayInfo(MString("SlopeAt idx ") + posAMeshIndex + " -  " + slopeAtPoint);
-    //
-    //     // We'll likely not need the real distance.. or maybe we can just have the distance2?
-    //     double distance = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
-    //
-    //
-    //     // Gives nice controllable/sealable slider
-    //     double thresholdSeal = std::clamp((distance - stickyThreshold) / stickyThreshold, 0.0, 1.0);
-    //
-    //
-    //     // Angle based seems like a nice idea, but then fights with distance based ffs...
-    //     // // Get a blend to release when the angle is bigger than the threshold
-    //     // double angleRad = std::acos(slopeAtPoint);
-    //     // double angleDeg = angleRad * (180.0 / M_PI);
-    //     // double thresholdAngle = std::clamp((angleDeg - angleThreshold) / angleThreshold, 0.0, 1.0);
-    //     //
-    //     // double t = thresholdSeal + (thresholdAngle * angleInfluence * (1.0 - thresholdSeal));
-    //
-    //     // Maybe after a min or max dist has been reached, is literally a linear blend back to 0?? like anim the envelope
-    //     double t = thresholdSeal;
-    //
-    //     double blendVal = t;                          // linear
-    //     // double blendVal = t * t;                          // quadratic
-    //     // double blendVal = t * t * (3.0 - 2.0 * t);       // smoothstep
-    //     // double blendVal = t * t * (3.0 - 2.0 * t);       // smoothstep
-    //     // smootherstep (quintic) - Ken Perlin, flatter at both ends
-    //     // double blendVal = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-    //     // power blend - tension controls how flat the ends are
-    //     // tension > 1 = more aggressive snap, flat shoulders
-    //     // tension < 1 = more linear
-    //     // double blendVal = 0.5 * (1.0 - std::cos(t * M_PI)); // cosine, very smooth
-    //     // double blendVal = std::pow(t, stickyFalloff);     // user-controlled
-    //
-    //     // auto easeInOut =[](double t, double easeIn, double easeOut)
-    //     // {
-    //     //     // if (t < 0.5)
-    //     //     return 0.5 * std::pow(2.0 * t, easeIn);
-    //     //     // else
-    //     //     // return 1.0 - 0.5 * std::pow(2.0 * (1.0 - t), easeOut);
-    //     // };
-    //
-    //     // double easeIn  = stickyFalloff;
-    //     // double easeOut = stickyAmount;
-    //     //
-    //     // double blendVal = easeInOut(t, easeIn, easeOut);
-    //
-    //     // if (posAMeshIndex == 4305)
-    //     //     MGlobal::displayInfo(MString("dist: ") + distance + " thresholdSeal " + thresholdSeal);
-    //
-    //
-    //     MVector blendedA = posM + blendVal * (posA - posM);
-    //     MVector blendedB = posM + blendVal * (posB - posM);
-    //
-    //     mid_pos[posAMeshIndex] = blendedA;
-    //     mid_pos[posBMeshIndex] = blendedB;
-    //
-    //
-    //
-    // }
+    std::unordered_map<int, MVector> deformedPositions; // we need to rethink this as we can probably generate some weights directly?
+    std::vector<double> blendVals(largerCount);
+    std::vector<double> slopeAtPoints(largerCount);
+    std::vector<double> cornerRelax(largerCount);
+    double startAngleInfluence = 1.0;
+    double endAngleInfluence = 1.0;
 
     // precompute cumulative arc length along larger loop
     std::vector<double> arcLength(largerCount, 0.0);
@@ -544,57 +457,66 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         arcLength[x] = arcLength[x - 1] + delta.length();
     }
     double totalLength = arcLength[largerCount - 1];
-
-    int leftCornerAngleIndex = -1;
-    int rightCornerAngleIndex = -1;
     double cornerDistance = (totalLength / 2.0) * cornerAutoRelaxDistance;
 
-    for (int j = 0; j < largerCount; j++)
+
+    // Remove stickyness based on the angle between corner top-bottom + 1/3 of arclen
+    // By computing A-A1 to B-B1 (and opposite) we should get a nice float to auto
+    // modulate the corner stickiness, that with distanc ebased approaches alone is not enough
+    //
+    //     ___ A1 _____ C1 ___
+    // A  /                   \  C
+    //   *                     *
+    // B  \___   ______    ___/  D
+    //         B1       D1
+    if (cornerAutoRelax > 0.0)
     {
-        if (arcLength[j] <= cornerDistance)
-            leftCornerAngleIndex = j;
-        if (arcLength[j] >= totalLength - cornerDistance) {
-            rightCornerAngleIndex = j;
-            break;
+        int leftCornerAngleIndex = -1;
+        int rightCornerAngleIndex = -1;
+
+        for (int j = 0; j < largerCount; j++)
+        {
+            if (arcLength[j] <= cornerDistance)
+                leftCornerAngleIndex = j;
+            if (arcLength[j] >= totalLength - cornerDistance) {
+                rightCornerAngleIndex = j;
+                break;
+            }
         }
+
+        // Compute slopes using startCornerIdx and endCornerIdx
+        MVector startDirA = (larger->first[leftCornerAngleIndex] - larger->first[0]).normal();
+        MVector startDirB = (smaller->first[resampleOriginalIndex[leftCornerAngleIndex]] - smaller->first[resampleOriginalIndex[0]]).normal();
+        double startSlopeDot = std::clamp(startDirA * startDirB, -1.0, 1.0);
+        double startSlopeAngle = std::acos(startSlopeDot) * 90.0 / M_PI; // yes half angle!
+
+        MVector endDirA = (larger->first[largerCount-1] - larger->first[rightCornerAngleIndex]).normal();
+        MVector endDirB = (smaller->first[resampleOriginalIndex[largerCount-1]] - smaller->first[resampleOriginalIndex[rightCornerAngleIndex]]).normal();
+        double endSlopeDot = std::clamp(endDirA * endDirB, -1.0, 1.0);
+        double endSlopeAngle = std::acos(endSlopeDot) * 90.0 / M_PI; // yes half angle!
+
+        // // Create a multiplier
+        // double startAngleInfluence = 1.0 - ((startSlopeDot + 1.0) / 2.0);
+        // double endAngleInfluence = 1.0 - ((endSlopeDot + 1.0) / 2.0);
+
+        // // Create multipliers based on start-end angle ranges
+        startAngleInfluence = std::clamp((startSlopeAngle - cornerAutoRelaxStartAngle) / (cornerAutoRelaxEndAngle - cornerAutoRelaxStartAngle), 0.0, 1.0);
+        endAngleInfluence = std::clamp((endSlopeAngle - cornerAutoRelaxStartAngle) / (cornerAutoRelaxEndAngle - cornerAutoRelaxStartAngle), 0.0, 1.0);
+
+        // MGlobal::displayInfo(MString("Start angle: ") + startSlopeAngle + " >" + startAngleInfluence + " End angle: " + endSlopeAngle + " >" + endAngleInfluence);
+        // MGlobal::displayInfo(MString("Start angle mult: ") + startAngleInfluence + " End angle mult: " + endAngleInfluence);
+        //
+        // // Debug output
+        // MGlobal::displayInfo(MString("Left idx: ") + leftCornerAngleIndex +
+        //                      MString(" (dist: ") + arcLength[leftCornerAngleIndex] +
+        //                      MString("), Right idx: ") + rightCornerAngleIndex +
+        //                      MString(" (dist: ") + (totalLength - arcLength[rightCornerAngleIndex]) +
+        //                      MString(")"));
+        //
+        // MGlobal::displayInfo(MString("Left B idx: ") + resampleOriginalIndex[leftCornerAngleIndex] +
+        //                      MString(", Right B idx: ") + resampleOriginalIndex[rightCornerAngleIndex]);
     }
 
-    // Compute slopes using startCornerIdx and endCornerIdx
-    MVector startDirA = (larger->first[leftCornerAngleIndex] - larger->first[0]).normal();
-    MVector startDirB = (smaller->first[resampleOriginalIndex[leftCornerAngleIndex]] - smaller->first[resampleOriginalIndex[0]]).normal();
-    double startSlopeDot = std::clamp(startDirA * startDirB, -1.0, 1.0);
-    double startSlopeAngle = std::acos(startSlopeDot) * 90.0 / M_PI; // yes half angle!
-
-    MVector endDirA = (larger->first[largerCount-1] - larger->first[rightCornerAngleIndex]).normal();
-    MVector endDirB = (smaller->first[resampleOriginalIndex[largerCount-1]] - smaller->first[resampleOriginalIndex[rightCornerAngleIndex]]).normal();
-    double endSlopeDot = std::clamp(endDirA * endDirB, -1.0, 1.0);
-    double endSlopeAngle = std::acos(endSlopeDot) * 90.0 / M_PI; // yes half angle!
-
-    // // Create a multiplier
-    // double startAngleInfluence = 1.0 - ((startSlopeDot + 1.0) / 2.0);
-    // double endAngleInfluence = 1.0 - ((endSlopeDot + 1.0) / 2.0);
-
-    // // Create multipliers based on start-end angle ranges
-    double startAngleInfluence = std::clamp((startSlopeAngle - cornerAutoRelaxStartAngle) / (cornerAutoRelaxEndAngle - cornerAutoRelaxStartAngle), 0.0, 1.0);
-    double endAngleInfluence = std::clamp((endSlopeAngle - cornerAutoRelaxStartAngle) / (cornerAutoRelaxEndAngle - cornerAutoRelaxStartAngle), 0.0, 1.0);
-
-    // MGlobal::displayInfo(MString("Start angle: ") + startSlopeAngle + " >" + startAngleInfluence + " End angle: " + endSlopeAngle + " >" + endAngleInfluence);
-    // MGlobal::displayInfo(MString("Start angle mult: ") + startAngleInfluence + " End angle mult: " + endAngleInfluence);
-    //
-    // // Debug output
-    // MGlobal::displayInfo(MString("Left idx: ") + leftCornerAngleIndex +
-    //                      MString(" (dist: ") + arcLength[leftCornerAngleIndex] +
-    //                      MString("), Right idx: ") + rightCornerAngleIndex +
-    //                      MString(" (dist: ") + (totalLength - arcLength[rightCornerAngleIndex]) +
-    //                      MString(")"));
-    //
-    // MGlobal::displayInfo(MString("Left B idx: ") + resampleOriginalIndex[leftCornerAngleIndex] +
-    //                      MString(", Right B idx: ") + resampleOriginalIndex[rightCornerAngleIndex]);
-
-
-    std::vector<double> blendVals(largerCount);
-    std::vector<double> slopeAtPoints(largerCount);
-    std::vector<double> cornerRelax(largerCount);
 
 
 
@@ -602,108 +524,12 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     for (int x = 0; x < largerCount; x++)
     {
         MVector& posA = larger->first[x];
-        // int posAMeshIndex = larger->second[x];
 
         int smallerIdx = resampleOriginalIndex[x];
         MVector& posB  = smaller->first[smallerIdx];
-        // int posBMeshIndex = smaller->second[smallerIdx];
-
-        // MVector& posM = averagedPositions[x];
-
-        // // Slope proved to be hard to control in combination with distance
-        // // edge direction along A's loop
-        // int nextA = std::min(x + 1, largerCount - 1);
-        // MVector dirA = (larger->first[nextA] - posA).normal();
-        //
-        // // edge direction along B's loop
-        // int nextB = std::min(smallerIdx + 1, smallerCount - 1);
-        // MVector dirB = (smaller->first[nextB] - posB).normal();
-        //
-        // // 1 = edges are parallel (center, full sticky)
-        // // 0 = edges diverge (corner, sticky fades)
-        // double slopeAtPoint =  std::clamp(dirA * dirB, -1.0, 1.0); // std::max(dirA * dirB, 0.0);
-
-
-        // // use prev and next on the SAME loop
-        // int prevA = std::max(x - 1, 0);
-        // int nextA = std::min(x + 1, largerCount - 1);
-        //
-        // MVector dirIn  = (larger->first[x]     - larger->first[prevA]).normal();
-        // MVector dirOut = (larger->first[nextA] - larger->first[x]).normal();
-        //
-        // // 1 = straight (center), 0 = sharp turn (corner)
-        // double slopeAtPoint = std::max(dirIn * dirOut, 0.0);
-        //
-        // MGlobal::displayInfo(MString("SlopeAt idx ") + posAMeshIndex + " -  " + slopeAtPoint);
-
-        // distance from nearest end (symmetric)
-        double distFromEnd = std::min(arcLength[x], totalLength - arcLength[x]);
-
-        // Normalize it to arclen and clamp to our corner area
-        double cornerAreaInfluence = std::max(0.0, 1.0 - (distFromEnd / cornerDistance));
-
-        // Get normalized position along the curve (0 = start, 1 = end)
-        double t = arcLength[x] / totalLength;
-
-        // Blend between start and end angles based on position (angle influence is 0 when closed, towards 1 when closed)
-        double targetAngle = (1.0 - t) * startAngleInfluence + t * endAngleInfluence;
-
-        // Now multiply it by the actual angle influence (0-1) and by the angle corner auto relax
-        // We will have a gradual value from 0 to 1, guided from the angle between at corners, blending towards the middle
-        double cornerRelaxValue = cornerAreaInfluence * targetAngle * cornerAutoRelax;
-
-        // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
 
         // Distance between A-B point to control general influence
         double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
-
-        // // inside seal zone → 0 (sticky)
-        // // inside ramp zone → linear 0→1
-        // // outside → 1 (open)
-        // double sealMask;
-        // if (distFromEnd < sealLength)
-        //     sealMask = 0.0;
-        // else if (distFromEnd < sealLength + sealSkip)
-        //     sealMask = (distFromEnd - sealLength) / sealSkip;
-        // else
-        //     sealMask = 1.0;
-
-        // double thresholdSeal = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
-        //
-        // // double blendVal = sealMask * thresholdSeal;
-        //
-        // // double blendVal = std::min(thresholdSeal, sealMask);
-        //
-        // blendVals[x] = thresholdSeal;
-        // slopeAtPoints[x] = slopeAtPoint;
-        // blendVals[x] = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0); // kind of bueno
-
-        // double distSignal  = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
-        // double angleSignal = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0);
-        //
-        // blendVals[x] = std::clamp(distSignal + angleSignal, 0.0, 1.0);
-
-        // double distSignal  = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
-        // double rawSignal = distSignal;
-        // double distSignal  = std::clamp((distanceFromMid - (stickyThreshold*stickyAmount)) / (stickyThreshold*stickyAmount), 0.0, 1.0);
-
-
-        // double dx = posA.x - posB.x;
-        // double dy = posA.y - posB.y;
-        // double dz = posA.z - posB.z;
-        // double actualDistance = std::sqrt(dx*dx + dy*dy + dz*dz);
-        // double stickyFactor = stickyThreshold * stickyAmount;
-        // double distanceFromMid = actualDistance * (1.0 - stickyAmount);
-        // double distSignal = std::clamp((distanceFromMid - stickyFactor) / stickyFactor, 0.0, 1.0);
-        //
-        // double angleSignal = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0);
-        // double rawSignal   = std::clamp(distSignal + angleSignal, 0.0, 1.0);
-
-
-        // blendVals[x] = std::clamp(rawSignal * stickyAmount, 0.0, 1.0);
-        // blendVals[x] = rawSignal * stickyAmount + (1.0 - stickyAmount);
-
-        // double interpolated = rawSignal * rawSignal * (3.0 - 2.0 * rawSignal);       // smoothstep
 
         // ------- seems controllable
         double range = stickyMaxThreshold - stickyMinThreshold;
@@ -718,93 +544,43 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             1.0
         );
 
+        // Simple distance base seal or corner relax enanched
+        if (cornerAutoRelax <= 0.0)
+        {
+            blendVals[x] = distanceSignal;
+        }
+        else
+        {
+            // distance from nearest end (symmetric)
+            double distFromEnd = std::min(arcLength[x], totalLength - arcLength[x]);
 
-        // // Apply corner influence - slopeAtPoint already does what you need!
-        // // At center: slopeAtPoint=1 → full rawSignal
-        // // At corners: slopeAtPoint=0 → zero stickiness
-        // // float withCorners = distanceSignal * slopeAtPoint;
-        //
-        // // Or if you want angleInfluence to control how strong the effect is:
-        // double withCorners = distanceSignal * (1.0 - (angleInfluence * slopeAtPoint));
-        //
-        // // Final blend
-        // double finalStickiness = std::lerp(0.0, withCorners, stickyAmount);
+            // Normalize it to arc-len and clamp to our corner area
+            double cornerAreaInfluence = std::max(0.0, 1.0 - (distFromEnd / cornerDistance));
 
-        // double cornerFactor = 1.0 - slopeAtPoint;  // 0 at center, 1 at corners
-        // blendVals[x] = std::clamp(distanceSignal - (cornerFactor * angleInfluence), 0.0, 1.0);
+            // Get normalized position along the curve (0 = start, 1 = end)
+            double t = arcLength[x] / totalLength;
 
-        // Actually nice ease in ease out
-        // blendVals[x] = std::pow(distanceSignal, stickyFalloff) /
-        //               (std::pow(distanceSignal, stickyFalloff) + std::pow(1.0 - distanceSignal, stickyFalloff));
+            // Blend between start and end angles based on position (angle influence is 0 when closed, towards 1 when closed)
+            double targetAngle = (1.0 - t) * startAngleInfluence + t * endAngleInfluence;
 
+            // Now multiply it by the actual angle influence (0-1) and by the angle corner auto relax
+            // We will have a gradual value from 0 to 1, guided from the angle between at corners, blending towards the middle
+            double cornerRelaxValue = cornerAreaInfluence * targetAngle * cornerAutoRelax;
 
-        blendVals[x] = distanceSignal - cornerRelaxValue;
-
-        // double distSignal  = std::clamp((distanceFromMid - stickyThreshold) / stickyThreshold, 0.0, 1.0);
-        // double angleSignal = std::clamp(angleInfluence - slopeAtPoint, 0.0, 1.0);
-        //
-        // double gate = distSignal >= 0.0 ? 1.0 : 0.0;
-        //
-        // blendVals[x] = std::clamp(distSignal + angleSignal * gate, 0.0, 1.0);
-
-
-        // // corners get a smaller effective threshold → release sooner
-        // double cornerMin      = 0.5;
-        // double cornerness     = 1.0 - std::clamp((slopeAtPoint - cornerMin) / (1.0 - cornerMin), 0.0, 1.0);
-        // double effectiveThreshold = stickyThreshold * (1.0 - cornerness * angleInfluence);
-        //
-        // blendVals[x]     = std::clamp((distanceFromMid - effectiveThreshold) / effectiveThreshold, 0.0, 1.0);
-        // slopeAtPoints[x] = slopeAtPoint;
-
-
-        //
-        // MVector blendedA = posM + blendVal * (posA - posM);
-        // MVector blendedB = posM + blendVal * (posB - posM);
-        //
-        // mid_pos[posAMeshIndex] = blendedA;
-        // mid_pos[posBMeshIndex] = blendedB;
-    }
-
-
-    // Remove stickyness based on the angle between corner top-bottom + 1/3 of arclen
-    // By computing A-A1 to B-B1 (and opposite) we should get a nice float to auto
-    // modulate the corner stickiness, that with distanc ebased approaches alone is not enough
-    //
-    //     ___ A1 _____ C1 ___
-    // A  /                   \  C
-    //   *                     *
-    // B  \___   ______    ___/  D
-    //         B1       D1
-    if (cornerAutoRelax > 0.0)
-    {
-        // // forward pass
-        // float interpolationDistance = totalLength / 3.0;
-        //
-        // for (int x = 1; x < largerCount; x++)
-        // {
-        //     double worldDist = (larger->first[x] - larger->first[x - 1]).length();
-        //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
-        //     double maxDelta  = maxSlope * worldDist;
-        //     blendVals[x]     = std::min(blendVals[x], blendVals[x - 1] + maxDelta);
-        // }
-        // //
-        // // // backward pass
-        // // for (int x = largerCount - 2; x >= 0; x--)
-        // // {
-        // //     double worldDist = (larger->first[x + 1] - larger->first[x]).length();
-        // //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
-        // //     double maxDelta  = maxSlope * worldDist;
-        // //     blendVals[x]     = std::min(blendVals[x], blendVals[x + 1] + maxDelta);
-        // // }
+            // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
+            blendVals[x] = distanceSignal - cornerRelaxValue;
+        }
     }
 
     // Pretty decent "smooth/relax" of the whole edge
     int passes = std::max(1, int(stickyFalloff * 3));  // 0->1, 1->3 passes
     double strength = std::min(1.0, stickyFalloff * 2.0);  // intensity per pass
 
-    for (int p = 0; p < passes; p++) {
+    for (int p = 0; p < passes; p++)
+    {
         std::vector<double> blurred = blendVals;
-        for (int x = 0; x < largerCount; x++) {
+        for (int x = 0; x < largerCount; x++)
+        {
             int left = std::max(x - 1, 0);
             int right = std::min(x + 1, largerCount - 1);
 
@@ -814,61 +590,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
             blurred[x] = blendVals[x] * (1.0 - strength) + smoothed * strength;
         }
+
         blendVals = blurred;
     }
 
-    // backward pass first
-    // forward pass
-    // for (int x = 1; x < largerCount; x++)
-    // {
-    //     double worldDist = (larger->first[x] - larger->first[x - 1]).length();
-    //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
-    //     double maxDelta  = maxSlope * worldDist;
-    //     blendVals[x]     = std::min(blendVals[x], blendVals[x - 1] + maxDelta);
-    // }
-    //
-    // // backward pass
-    // for (int x = largerCount - 2; x >= 0; x--)
-    // {
-    //     double worldDist = (larger->first[x + 1] - larger->first[x]).length();
-    //     double maxSlope  = 1.0 / (sealSkip * std::max(slopeAtPoints[x], 0.1));
-    //     double maxDelta  = maxSlope * worldDist;
-    //     blendVals[x]     = std::min(blendVals[x], blendVals[x + 1] + maxDelta);
-    // }
-
-
-    // clamp max slope between neighbors in world space
-    // maxSlope = max change in blendVal per unit of arc length
-    // double maxSlope = 1.0 / sealSkip; // sealSkip = world distance over which blend can go 0→1
-
-    // double cornerRelax = angleInfluence;
-
-    // // 1. corner relaxation FIRST - set the floor at corners
-    // for (int x = 0; x < largerCount; x++)
-    // {
-    //     double cornerMin   = 0.5;
-    //     double cornerness  = 1.0 - std::clamp((slopeAtPoints[x] - cornerMin) / (1.0 - cornerMin), 0.0, 1.0);
-    //     double cornerFloor = std::pow(cornerness, cornerRelax);
-    //     blendVals[x]       = std::max(blendVals[x], cornerFloor);
-    // }
-    //
-    // // 2. forward pass - spread values, corners now seed high values outward
-    // for (int x = 1; x < largerCount; x++)
-    // {
-    //     double worldDist = (larger->first[x] - larger->first[x - 1]).length();
-    //     double maxDelta  = worldDist / sealSkip;
-    //     blendVals[x]     = std::max(blendVals[x], blendVals[x - 1] - maxDelta); // spread high values
-    //     blendVals[x]     = std::min(blendVals[x], blendVals[x - 1] + maxDelta); // limit steep rises
-    // }
-    //
-    // // 3. backward pass
-    // for (int x = largerCount - 2; x >= 0; x--)
-    // {
-    //     double worldDist = (larger->first[x + 1] - larger->first[x]).length();
-    //     double maxDelta  = worldDist / sealSkip;
-    //     blendVals[x]     = std::max(blendVals[x], blendVals[x + 1] - maxDelta);
-    //     blendVals[x]     = std::min(blendVals[x], blendVals[x + 1] + maxDelta);
-    // }
 
     std::unordered_map<int, MVector> edgeTargetPos; // the "middle" position each edge vertex is moving toward
 
@@ -881,16 +606,14 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         MVector& posB  = smaller->first[smallerIdx];
         int posBMeshIndex = smaller->second[smallerIdx];
 
-        MVector& posM = averagedPositions[x];
-
         double blendVal = blendVals[x];
 
-
+        MVector posM = (posA + posB) * 0.5;
         MVector blendedA = posA + blendVal * (posM - posA);
         MVector blendedB = posB + blendVal * (posM - posB);
 
-        mid_pos[posAMeshIndex] = blendedA;
-        mid_pos[posBMeshIndex] = blendedB;
+        deformedPositions[posAMeshIndex] = blendedA;
+        deformedPositions[posBMeshIndex] = blendedB;
 
         // Store the full 100% target (posM) for neighbor propagation
         edgeTargetPos[posAMeshIndex] = blendedA;
@@ -898,113 +621,86 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     }
 
 
-    // // At this stage, we should probably just move the result, multiplied by direction vector * weight
-    // for (; !subIter.isDone(); subIter.next()) // Iterate through points of the geo subset
-    // {
-    //     auto meshVtxIndex = subIter.index();
-    //     // MPoint pt = subIter.position();
-    //     // MGlobal::displayInfo(MString("mesh idx: ") + subIter.index());
-    //
-    //     if (mid_pos.contains(meshVtxIndex))
-    //     {
-    //         const auto& newP = mid_pos[meshVtxIndex];
-    //         subIter.setPosition({0, 0, 0});
-    //         MGlobal::displayInfo(MString("moving mesh idx: ") + subIter.index() + " to " + newP.x + ", " + newP.y  + ", " + newP.z);
-    //     }
-    //     else
-    //     {
-    //
-    //     }
-    //
-    //
-    //     // ... do work ...
-    //     // subIter.setPosition(pt);
-    // }
-
-
     // ------------------ blend weights ??
-std::unordered_map<int, double> vertexWeights;
-std::unordered_map<int, MVector> vertexTargets;
-std::unordered_set<int> edgeVertices;
+    std::unordered_map<int, double> vertexWeights;
+    std::unordered_map<int, MVector> vertexTargets;
+    std::unordered_set<int> edgeVertices;
 
-for (int x = 0; x < largerCount; x++)
-{
-    int posAMeshIndex = larger->second[x];
-    int posBMeshIndex = smaller->second[resampleOriginalIndex[x]];
-
-    vertexWeights[posAMeshIndex] = 1.0;
-    vertexWeights[posBMeshIndex] = 1.0;
-    vertexTargets[posAMeshIndex] = edgeTargetPos[posAMeshIndex];
-    vertexTargets[posBMeshIndex] = edgeTargetPos[posBMeshIndex];
-    edgeVertices.insert(posAMeshIndex);
-    edgeVertices.insert(posBMeshIndex);
-}
-
-int propagationPasses = propagateInfluence;
-double propagationFalloff = propagateSmoothness;
-MItMeshVertex neighborIter(meshObj);
-
-for (int pass = 0; pass < propagationPasses; pass++)
-{
-    std::unordered_map<int, double>  newWeights = vertexWeights;
-    std::unordered_map<int, MVector> newTargets = vertexTargets;
-
-    for (const auto& [idx, weight] : vertexWeights)
+    for (int x = 0; x < largerCount; x++)
     {
-        if (weight <= 0.01) continue;
+        int posAMeshIndex = larger->second[x];
+        int posBMeshIndex = smaller->second[resampleOriginalIndex[x]];
 
-        int prevIdx = 0;
-        neighborIter.setIndex(idx, prevIdx);
-        MIntArray neighborList;
-        neighborIter.getConnectedVertices(neighborList);
+        vertexWeights[posAMeshIndex] = 1.0;
+        vertexWeights[posBMeshIndex] = 1.0;
+        vertexTargets[posAMeshIndex] = edgeTargetPos[posAMeshIndex];
+        vertexTargets[posBMeshIndex] = edgeTargetPos[posBMeshIndex];
+        edgeVertices.insert(posAMeshIndex);
+        edgeVertices.insert(posBMeshIndex);
+    }
 
-        for (int i = 0; i < (int)neighborList.length(); i++)
+    int propagationPasses = propagateInfluence;
+    double propagationFalloff = propagateSmoothness;
+    MItMeshVertex neighborIter(meshObj);
+
+    for (int pass = 0; pass < propagationPasses; pass++)
+    {
+        std::unordered_map<int, double>  newWeights = vertexWeights;
+        std::unordered_map<int, MVector> newTargets = vertexTargets;
+
+        for (const auto& [idx, weight] : vertexWeights)
         {
-            int neighborIdx = neighborList[i];
+            if (weight <= 0.01) continue;
 
-            if (edgeVertices.count(neighborIdx)) continue;  // never overwrite edge verts
+            int prevIdx = 0;
+            neighborIter.setIndex(idx, prevIdx);
+            MIntArray neighborList;
+            neighborIter.getConnectedVertices(neighborList);
 
-            double propagatedWeight = weight * propagationFalloff;
-            auto it = newWeights.find(neighborIdx);
-            if (it == newWeights.end() || propagatedWeight > it->second)
+            for (int i = 0; i < (int)neighborList.length(); i++)
             {
-                newWeights[neighborIdx] = propagatedWeight;
-                newTargets[neighborIdx] = vertexTargets[idx];
+                int neighborIdx = neighborList[i];
+
+                if (edgeVertices.count(neighborIdx)) continue;  // never overwrite edge verts
+
+                double propagatedWeight = weight * propagationFalloff;
+                auto it = newWeights.find(neighborIdx);
+                if (it == newWeights.end() || propagatedWeight > it->second)
+                {
+                    newWeights[neighborIdx] = propagatedWeight;
+                    newTargets[neighborIdx] = vertexTargets[idx];
+                }
             }
         }
+        vertexWeights = std::move(newWeights);
+        vertexTargets = std::move(newTargets);
     }
-    vertexWeights = std::move(newWeights);
-    vertexTargets = std::move(newTargets);
-}
 
-// Apply
-MItMeshVertex vIt(meshObj);
-for (const auto& [idx, weight] : vertexWeights)
-{
-    if (edgeVertices.count(idx)) continue;
+    // Apply
+    MItMeshVertex vIt(meshObj);
+    for (const auto& [idx, weight] : vertexWeights)
+    {
+        if (edgeVertices.count(idx)) continue;
 
-    int prevIdx = 0;
-    vIt.setIndex(idx, prevIdx);
-    MVector originalPos(vIt.position(MSpace::kWorld));
+        int prevIdx = 0;
+        vIt.setIndex(idx, prevIdx);
+        MVector originalPos(vIt.position(MSpace::kWorld));
 
-    MVector target = vertexTargets.count(idx) ? vertexTargets[idx] : originalPos;
-    mid_pos[idx] = originalPos + weight * (target - originalPos);
-}
+        MVector target = vertexTargets.count(idx) ? vertexTargets[idx] : originalPos;
+        deformedPositions[idx] = originalPos + weight * (target - originalPos);
+    }
 
     // ------------------------------------------
-
-
-
-    // iterate through each point in the geometry
+    // iterate through each point in the geometry slice provided
     //
     int count = 0;
     for ( ; !iter.isDone(); iter.next())
     {
         auto meshVtxIndex = iter.index();
-        if (mid_pos.contains(meshVtxIndex))
+        if (deformedPositions.contains(meshVtxIndex))
         {
             MPoint pt = iter.position();
-            const auto& newP = mid_pos[meshVtxIndex];
+            const auto& newP = deformedPositions[meshVtxIndex];
             iter.setPosition(pt + (newP - pt) * envelope);
             count++;
             // MGlobal::displayInfo(MString("moving mesh idx: ") + subIter.index() + " to " + newP.x + ", " + newP.y  + ", " + newP.z);

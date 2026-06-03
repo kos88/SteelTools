@@ -37,6 +37,7 @@ public:
     static MObject s_propagateSmoothness;
     static MObject s_propagateInfluence;
 
+    // static MObject s_stickyAutoAnim;
 
     static MObject s_EdgeLoopA;
     static MObject s_EdgeLoopB;
