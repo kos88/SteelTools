@@ -395,11 +395,15 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         MVector resampledSmaller = smaller->first[smallerIdx] + (smaller->first[smallerIdx + 1] - smaller->first[smallerIdx]) * remainder;
     }
 
+    // These are all here, but some should be precomputed only once!!
+    std::unordered_map<int, MVector> deformedPositions;
 
-    std::unordered_map<int, MVector> deformedPositions; // we need to rethink this as we can probably generate some weights directly?
+    // the "middle" position each edge vertex is moving toward, needed for growing/blending weights
+    std::unordered_map<int, MVector> edgeTargetPos;
+
+    // A temp storage where the edge are "sticking" to do a second blur pass
     std::vector<double> blendVals(largerCount);
-    std::vector<double> slopeAtPoints(largerCount);
-    std::vector<double> cornerRelax(largerCount);
+
     double startAngleInfluence = 1.0;
     double endAngleInfluence = 1.0;
 
@@ -476,10 +480,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // Now for each point A-Mid-B decide the position
     for (int x = 0; x < largerCount; x++)
     {
-        MVector& posA = larger->first[x];
+        const MVector& posA = larger->first[x];
 
-        int smallerIdx = resampleOriginalIndex[x];
-        MVector& posB  = smaller->first[smallerIdx];
+        const int smallerIdx = resampleOriginalIndex[x];
+        const MVector& posB  = smaller->first[smallerIdx];
 
         double cornerRelaxValue = 0;
 
@@ -515,18 +519,20 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
 
         // Map distance to a 0-1 signal based on min/max range
-        double distanceSignal = std::clamp(
+        double blendValue = std::clamp(
             (distanceFromMid - stickyMaxRange) / (stickyMinRange - stickyMaxRange),
             0.0,
             1.0
         );
 
-        blendVals[x] = distanceSignal;
+        // Store for blur
+        blendVals[x] = blendValue;
 
 
     }
 
-    // Pretty decent "smooth/relax" of the whole edge
+
+    // Sequentially blur the values with a small gaussian like kernel of before and after
     int passes = std::max(1, static_cast<int>(stickyFalloff * 3));  // 0->1, 1->3 passes
     double strength = std::min(1.0, stickyFalloff * 2.0);  // intensity per pass
 
@@ -549,8 +555,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     }
 
 
-    std::unordered_map<int, MVector> edgeTargetPos; // the "middle" position each edge vertex is moving toward
-
+    // Compute sticky edge deformed positions and targets for weight propagation
     for (int x = 0; x < largerCount; x++)
     {
         MVector& posA = larger->first[x];
@@ -574,7 +579,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         edgeTargetPos[posBMeshIndex] = blendedB;
     }
 
-    // ------------------ blend weights ??
+    // ------------------ blend weights
     std::unordered_map<int, double> vertexWeights;
     std::unordered_map<int, MVector> vertexTargets;
     std::unordered_set<int> edgeVertices;
@@ -611,7 +616,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             MIntArray neighborList;
             neighborIter.getConnectedVertices(neighborList);
 
-            for (int i = 0; i < (int)neighborList.length(); i++)
+            for (int i = 0; i < static_cast<int>(neighborList.length()); i++)
             {
                 int neighborIdx = neighborList[i];
 
