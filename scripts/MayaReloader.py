@@ -1,4 +1,5 @@
 import maya.cmds as cmds
+import maya.mel as mel
 
 plugin_name = "SteelToolsMaya"
 
@@ -8,3 +9,7 @@ if cmds.pluginInfo(plugin_name, q=True, loaded=True):
     print(f"Unloaded plugin {plugin_name}")
 
 cmds.loadPlugin(pluginName)
+
+# Reload AE template
+mel.eval('source "AEsteelStickyLipsTemplate.mel"')
+print("Reloaded AE template")

@@ -43,8 +43,9 @@ MObject StickyLipsNode::s_cornerAutoRelaxStartAngle;  // the angle between where
 MObject StickyLipsNode::s_cornerAutoRelaxEndAngle;  // the angle between where the relax is at it's peak
 MObject StickyLipsNode::s_cornerAutoRelaxDistance;  // the percent of half segment the corner relax propagates
 
-MObject StickyLipsNode::s_propagateSmoothness;  // How far from the initial edge loop the surrounding area is affected
-MObject StickyLipsNode::s_propagateInfluence; // How smooth the surrounding area behaves
+MObject StickyLipsNode::s_propagateInfluence;  // How much the edge loop surrounding area is affected
+MObject StickyLipsNode::s_propagateTension;  // Blend between direction vector and target position, giving different angle tension on the surrounding loops
+MObject StickyLipsNode::s_propagateIterations; // How many loops we expand the weights from the main edge
 
 MObject StickyLipsNode::s_EdgeLoopA;
 MObject StickyLipsNode::s_EdgeLoopB;
@@ -129,7 +130,7 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_cornerAutoRelaxEndAngle);
     attributeAffects(s_cornerAutoRelaxEndAngle, outputGeom);
 
-    s_cornerAutoRelaxDistance = nAttr.create("autoRelaxDistance", "crd", MFnNumericData::kFloat, 0.3);
+    s_cornerAutoRelaxDistance = nAttr.create("autoRelaxSegmentPortion", "crd", MFnNumericData::kFloat, 0.3);
     nAttr.setMin(0.0);
     nAttr.setMax(1.0);
     nAttr.setKeyable(true);
@@ -137,19 +138,29 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_cornerAutoRelaxDistance);
     attributeAffects(s_cornerAutoRelaxDistance, outputGeom);
 
-    s_propagateSmoothness = nAttr.create("propagateSmoothness", "psm", MFnNumericData::kFloat, 0.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_propagateSmoothness);
-    attributeAffects(s_propagateSmoothness, outputGeom);
-
-    s_propagateInfluence = nAttr.create("propagateInfluence", "pin", MFnNumericData::kInt, 3);
-    nAttr.setMin(0);
-    nAttr.setMax(10);
+    s_propagateInfluence = nAttr.create("propagateInfluence", "psm", MFnNumericData::kFloat, 1.0);
+    nAttr.setMin(0.0);
+    nAttr.setMax(1.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
     addAttribute(s_propagateInfluence);
     attributeAffects(s_propagateInfluence, outputGeom);
+
+    s_propagateTension = nAttr.create("propagateTension", "ptes", MFnNumericData::kFloat, 0.5);
+    nAttr.setMin(0.0);
+    nAttr.setMax(1.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_propagateTension);
+    attributeAffects(s_propagateTension, outputGeom);
+
+    s_propagateIterations = nAttr.create("propagateIterations", "pin", MFnNumericData::kInt, 3);
+    nAttr.setMin(0);
+    // nAttr.setMax(10);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_propagateIterations);
+    attributeAffects(s_propagateIterations, outputGeom);
 
     // Using string for edge loop component tags
     MStatus status;
@@ -197,8 +208,9 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     const float envelope = envData.asFloat();
 
-    const int propagateInfluence = block.inputValue(s_propagateInfluence).asInt();
-    const float propagateSmoothness = block.inputValue(s_propagateSmoothness).asFloat();
+    const int propagationPasses = block.inputValue(s_propagateIterations).asInt();
+    const float propagateInfluence = block.inputValue(s_propagateInfluence).asFloat();
+    const float propagateTension = block.inputValue(s_propagateTension).asFloat();
 
     const float stickyMaxThreshold = block.inputValue(s_distanceMaxThreshold).asFloat();
     const float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
@@ -217,13 +229,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     DEBUG_PRINT(MString("Deforming at input index...") + multiIndex);
 
-    // Get the matrix which is used to define the direction and scale
-    // of the offset.
-    //
-    // MMatrix omat = matData.asMatrix();
-    // MMatrix omatinv = omat.inverse();
-
-
+    // Pull geo input data and make sure we have a valid subset
     MArrayDataHandle hInputArray  = block.inputArrayValue(input); // Input plug
     hInputArray.jumpToElement(multiIndex); // Input[x] plug
     MDataHandle currentInput = hInputArray.inputValue();
@@ -237,22 +243,22 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
                                                                    multiIndex
                                                                    );
     if (state == MFnGeometryData::kCompleteGroup) {
-        MGlobal::displayWarning("[Steel Sticky Lips] Deformer needs a component tag to work on an area of the mesh"); return MS::kFailure;
+        MGlobal::displayWarning("[Steel Sticky Lips] Deformer needs a component tag to work on an area of the mesh");
+        return MS::kFailure;
     } if (state == MFnGeometryData::kInvalidGroup) {
-        MGlobal::displayError("[Steel Sticky Lips] Invalid component group provided"); return MS::kFailure;
+        MGlobal::displayError("[Steel Sticky Lips] Invalid component group provided");
+        return MS::kFailure;
     } if (state == MFnGeometryData::kEmptyGroup) {
-        MGlobal::displayError("[Steel Sticky Lips] Invalid geometry. Unable to deform."); return MS::kFailure;
+        MGlobal::displayError("[Steel Sticky Lips] Invalid geometry. Unable to deform.");
+        return MS::kFailure;
     }
-
-    // // Get tag names
-    // const MString tagA = block.inputValue(s_EdgeLoopA).asString();
-    // const MString tagB = block.inputValue(s_EdgeLoopB).asString();
 
     MFnMesh                 fnMesh(meshObj);
     const MFnGeometryData   meshData(meshObj, &returnStatus);
 
     if (returnStatus != MS::kSuccess) {
-        MGlobal::displayError("[Steel Sticky Lips] Unexpected error when initializing geometry accessor"); return returnStatus;
+        MGlobal::displayError("[Steel Sticky Lips] Unexpected error when initializing geometry accessor");
+        return returnStatus;
     }
 
     // MStringArray keysObj;
@@ -400,6 +406,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     // the "middle" position each edge vertex is moving toward, needed for growing/blending weights
     std::unordered_map<int, MVector> edgeTargetPos;
+    std::unordered_map<int, MVector> edgeDirectionVectors;
 
     // A temp storage where the edge are "sticking" to do a second blur pass
     std::vector<double> blendVals(largerCount);
@@ -417,9 +424,8 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     double totalLength = arcLength[largerCount - 1];
     double cornerDistance = (totalLength / 2.0) * cornerAutoRelaxDistance;
 
-
     // Remove stickyness based on the angle between corner top-bottom + a portion of half arclen
-    // By computing A-A1 to B-B1 (and opposite) we should get a nice float to auto
+    // By computing the angle between A-A1 to B-B1 (and opposite) we should get a nice float to auto
     // modulate the corner stickiness, that with distance based approaches alone is not enough
     //
     //     ___ A1 _____ C1 ___
@@ -476,7 +482,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     }
 
 
-
     // Now for each point A-Mid-B decide the position
     for (int x = 0; x < largerCount; x++)
     {
@@ -487,7 +492,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
         double cornerRelaxValue = 0;
 
-        // Simple distance base seal or corner relax enanched
+        // Simple distance base seal or corner relax enhanced
         if (cornerAutoRelax > 0.0)
         {
             // distance from nearest end (symmetric)
@@ -509,7 +514,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
         }
 
-        // Distance between A-B point to control general influence
+        // Distance between A-B point to control general influence.. (maybe we can avoid real distance ans skip sqrt)
         double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
 
         // ------- seems controllable
@@ -527,7 +532,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
         // Store for blur
         blendVals[x] = blendValue;
-
 
     }
 
@@ -554,7 +558,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         blendVals = blurred;
     }
 
-
+    // ---------------------------------------------------------------------
+    // NOTE: the whole propagation should really be computed ONCE and cached
+    // as <sticky id, weight> to just compute the final pos in the deform loop
+    // ---------------------------------------------------------------------
     // Compute sticky edge deformed positions and targets for weight propagation
     for (int x = 0; x < largerCount; x++)
     {
@@ -575,36 +582,44 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         deformedPositions[posBMeshIndex] = blendedB;
 
         // Store the full 100% target (posM) for neighbor propagation
-        edgeTargetPos[posAMeshIndex] = blendedA;
-        edgeTargetPos[posBMeshIndex] = blendedB;
+        edgeTargetPos[posAMeshIndex] = posM;//blendedA;
+        edgeTargetPos[posBMeshIndex] = posM;// blendedB;
+
+        // Store the direction vector to blend positions
+        edgeDirectionVectors[posAMeshIndex] = (posM - posA);
+        edgeDirectionVectors[posBMeshIndex] = (posM - posB);
     }
 
     // ------------------ blend weights
     std::unordered_map<int, double> vertexWeights;
     std::unordered_map<int, MVector> vertexTargets;
+    std::unordered_map<int, MVector> vertexDirections;
     std::unordered_set<int> edgeVertices;
 
     for (int x = 0; x < largerCount; x++)
     {
         int posAMeshIndex = larger->second[x];
         int posBMeshIndex = smaller->second[resampleOriginalIndex[x]];
+        double blendVal = blendVals[x];
 
-        vertexWeights[posAMeshIndex] = 1.0;
-        vertexWeights[posBMeshIndex] = 1.0;
+        vertexWeights[posAMeshIndex] = blendVal;
+        vertexWeights[posBMeshIndex] = blendVal;
         vertexTargets[posAMeshIndex] = edgeTargetPos[posAMeshIndex];
         vertexTargets[posBMeshIndex] = edgeTargetPos[posBMeshIndex];
+        vertexDirections[posAMeshIndex] = edgeDirectionVectors[posAMeshIndex];
+        vertexDirections[posBMeshIndex] = edgeDirectionVectors[posBMeshIndex];
         edgeVertices.insert(posAMeshIndex);
         edgeVertices.insert(posBMeshIndex);
     }
 
-    int propagationPasses = propagateInfluence;
-    double propagationFalloff = propagateSmoothness;
     MItMeshVertex neighborIter(meshObj);
 
     for (int pass = 0; pass < propagationPasses; pass++)
     {
         std::unordered_map<int, double>  newWeights = vertexWeights;
         std::unordered_map<int, MVector> newTargets = vertexTargets;
+        std::unordered_map<int, MVector> newDirections = vertexDirections;
+
 
         for (const auto& [idx, weight] : vertexWeights)
         {
@@ -624,17 +639,49 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
                 if (edgeVertices.contains(neighborIdx))
                     continue;
 
-                double propagatedWeight = weight * propagationFalloff;
+                // double propagatedWeight = weight * propagationFalloff;
+                // Adjust the power for different curves (2.0 = quadratic, 3.0 = cubic, etc.)
+                double t = static_cast<double>(pass) / (propagationPasses - 1);
+
+                // Cosine-based smooth falloff (smooth at both ends)
+                double cosineSmooth = (std::cos(t * M_PI) + 1.0) / 2.0;
+
+                // Scale by propagateSmoothness: 0 = no influence, higher = more influence
+                double passFactor = cosineSmooth * propagateInfluence;
+                double propagatedWeight = weight * passFactor;
+
+
                 auto it = newWeights.find(neighborIdx);
                 if (it == newWeights.end() || propagatedWeight > it->second)
                 {
+                    // newWeights[neighborIdx] = propagatedWeight;
+                    // newTargets[neighborIdx] = vertexTargets[idx];
+
                     newWeights[neighborIdx] = propagatedWeight;
-                    newTargets[neighborIdx] = vertexTargets[idx];
+
+                    // widthBlend = 0: use direction (same displacement)
+                    // widthBlend = 1: use target (end position)
+                    MVector direction = vertexDirections[idx];  // Same displacement for all
+                    MVector target = vertexTargets[idx];        // Specific end position
+
+                    // Get neighbor's current position
+                    MPoint neighborPos;
+                    neighborIter.setIndex(neighborIdx, prevIdx);
+                    neighborPos = neighborIter.position();
+
+                    // Compute position using displacement
+                    MVector displacedPos = MVector(neighborPos) + direction;
+
+                    // Blend: widthBlend = 0 (displacement), widthBlend = 1 (target)
+                    newTargets[neighborIdx] = displacedPos + propagateTension * (target - displacedPos);
+                    newDirections[neighborIdx] = direction;  // Direction always propagates as-is
                 }
             }
         }
+
         vertexWeights = std::move(newWeights);
         vertexTargets = std::move(newTargets);
+        vertexDirections = std::move(newDirections);
     }
 
     // Apply
@@ -647,7 +694,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         vIt.setIndex(idx, prevIdx);
         MVector originalPos(vIt.position(MSpace::kWorld));
 
-        MVector target = vertexTargets.count(idx) ? vertexTargets[idx] : originalPos;
+        MVector target = vertexTargets.contains(idx) ? vertexTargets[idx] : originalPos;
         deformedPositions[idx] = originalPos + weight * (target - originalPos);
     }
 

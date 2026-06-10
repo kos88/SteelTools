@@ -12,6 +12,8 @@ public:
     StickyLipsNode() = default;
     ~StickyLipsNode() override = default;
 
+    static MObject s_propagateTension;
+
     static void* creator();
     static MStatus initialize();
 
@@ -34,8 +36,8 @@ public:
     static MObject s_cornerAutoRelaxStartAngle;
     static MObject s_cornerAutoRelaxDistance;
 
-    static MObject s_propagateSmoothness;
     static MObject s_propagateInfluence;
+    static MObject s_propagateIterations;
 
     // static MObject s_stickyAutoAnim;
 

@@ -21,5 +21,10 @@ You need to have installed
 - Maya >= 2023
 - C++ compiler needed for the related maya version
 
+The following variables are needed to be specified
+-DBUILD_MAYA=TRUE
+-DMAYA_VERSION=2028
+-DCMAKE_INSTALL_PREFIX="../release"
+
 
 

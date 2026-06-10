@@ -16,8 +16,10 @@ def create_sticky_lips(mesh_name: str,
                        auto_relax_start_angle: float = 20.0,
                        auto_relax_end_angle: float = 45.0,
 
-                       influence_propagate=4,
-                       influence_smooth=1.0):
+                       propagate_iterations=4,
+                       propagate_tension=0.5,
+                       propagate_influence=1.0
+                       ):
     ...
     cmds.undoInfo(openChunk=True)
     try:
@@ -31,8 +33,9 @@ def create_sticky_lips(mesh_name: str,
         cmds.setAttr(f"{created_name}.autoRelaxStartAngle", auto_relax_start_angle)
         cmds.setAttr(f"{created_name}.autoRelaxEndAngle", auto_relax_end_angle)
 
-        cmds.setAttr(f"{created_name}.propagateInfluence", influence_propagate)
-        cmds.setAttr(f"{created_name}.propagateSmoothness", influence_smooth)
+        cmds.setAttr(f"{created_name}.propagateInfluence", propagate_influence)
+        cmds.setAttr(f"{created_name}.propagateIterations", propagate_iterations)
+        cmds.setAttr(f"{created_name}.propagateTension", propagate_tension)
 
         cmds.setAttr(f"{created_name}.input[0].componentTagExpression", area_component_tag, type='string')
         cmds.setAttr(f"{created_name}.edgeLoopNameA", upper_edge_component_tag, type='string')

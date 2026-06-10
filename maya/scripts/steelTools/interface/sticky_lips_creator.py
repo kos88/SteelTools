@@ -608,7 +608,7 @@ class StickyLipsWindow:
                                      auto_relax_start_angle=corner_relax_start_val,
                                      auto_relax_end_angle=corner_relax_end_val,
 
-                                     influence_propagate=grow_amount_value)
+                                     propagate_iterations=grow_amount_value)
 
     def _on_close(self, *args):
         self.mesh_helper.stop()
