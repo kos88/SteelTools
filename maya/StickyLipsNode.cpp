@@ -32,21 +32,19 @@ MTypeId StickyLipsNode::id = SteelMaya::kStickyLipsNodeId;
 MString StickyLipsNode::name = SteelMaya::kStickyLipsNodeName;
 
 
-MObject StickyLipsNode::s_stickyAmount;
-MObject StickyLipsNode::s_stickyFalloff;
+MObject StickyLipsNode::s_stickyAmount; // Seal the lips if below this distance, this is the parameter suitable for anim
+MObject StickyLipsNode::s_stickyFalloff;  // The smooth amount on the sticky edge
 
-MObject StickyLipsNode::s_distanceMinThreshold;
-MObject StickyLipsNode::s_distanceMaxThreshold;
+MObject StickyLipsNode::s_distanceMinThreshold;  // Define the min range where the sticky starts
+MObject StickyLipsNode::s_distanceMaxThreshold;  // Define the min range where the sticky ends
 
-MObject StickyLipsNode::s_cornerAutoRelax;
-MObject StickyLipsNode::s_cornerAutoRelaxStartAngle;
-MObject StickyLipsNode::s_cornerAutoRelaxEndAngle;
-MObject StickyLipsNode::s_cornerAutoRelaxDistance;
+MObject StickyLipsNode::s_cornerAutoRelax;  // main influence of corner relax
+MObject StickyLipsNode::s_cornerAutoRelaxStartAngle;  // the angle between where the relax starts
+MObject StickyLipsNode::s_cornerAutoRelaxEndAngle;  // the angle between where the relax is at it's peak
+MObject StickyLipsNode::s_cornerAutoRelaxDistance;  // the percent of half segment the corner relax propagates
 
-MObject StickyLipsNode::s_propagateSmoothness;
-MObject StickyLipsNode::s_propagateInfluence;
-
-// MObject StickyLipsNode::s_stickyAutoAnim;
+MObject StickyLipsNode::s_propagateSmoothness;  // How far from the initial edge loop the surrounding area is affected
+MObject StickyLipsNode::s_propagateInfluence; // How smooth the surrounding area behaves
 
 MObject StickyLipsNode::s_EdgeLoopA;
 MObject StickyLipsNode::s_EdgeLoopB;
@@ -54,6 +52,11 @@ MObject StickyLipsNode::s_EdgeLoopB;
 MString StickyLipsNode::s_upperComponentTag = "upperEdge";
 MString StickyLipsNode::s_lowerComponentTag = "lowerEdge";
 
+#ifdef NDEBUG
+#define DEBUG_PRINT(message) ((void)0)
+#else
+#define DEBUG_PRINT(message) MGlobal::displayInfo(message)
+#endif
 
 constexpr bool build_debug_curves = false;
 
@@ -73,14 +76,14 @@ MStatus StickyLipsNode::initialize() {
     MFnNumericAttribute nAttr;
     MFnTypedAttribute tAttr;
 
-    s_stickyAmount = nAttr.create("stickyAmount", "sta", MFnNumericData::kFloat, 1.0);
+    s_stickyAmount = nAttr.create("sealDistance", "sta", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
     addAttribute(s_stickyAmount);
     attributeAffects(s_stickyAmount, outputGeom);
 
-    s_distanceMaxThreshold = nAttr.create("stickyMaxThreshold", "smxth", MFnNumericData::kFloat, 1.0);
+    s_distanceMaxThreshold = nAttr.create("maxThreshold", "smxth", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
@@ -88,36 +91,19 @@ MStatus StickyLipsNode::initialize() {
     attributeAffects(s_distanceMaxThreshold, outputGeom);
 
 
-    s_distanceMinThreshold = nAttr.create("stickyMinThreshold", "smith", MFnNumericData::kFloat, 1.0);
+    s_distanceMinThreshold = nAttr.create("minThreshold", "smith", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
     addAttribute(s_distanceMinThreshold);
     attributeAffects(s_distanceMinThreshold, outputGeom);
 
-    s_stickyFalloff = nAttr.create("stickyFalloff", "sfl", MFnNumericData::kFloat, 1.0);
+    s_stickyFalloff = nAttr.create("edgeSmooth", "sfl", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
     addAttribute(s_stickyFalloff);
     attributeAffects(s_stickyFalloff, outputGeom);
-    //
-    //
-    // s_angleThreshold = nAttr.create("angleThreshold", "ath", MFnNumericData::kFloat, 40.0);
-    // nAttr.setMin(0.0);
-    // nAttr.setMax(180.0);
-    // nAttr.setKeyable(true);
-    // nAttr.setStorable(true);
-    // addAttribute(s_angleThreshold);
-    // attributeAffects(s_angleThreshold, outputGeom);
-
-    // s_angleInfluence = nAttr.create("angleInfluence", "aif", MFnNumericData::kFloat, 1.0);
-    // // nAttr.setMin(0.0);
-    // // nAttr.setMax(1.0);
-    // nAttr.setKeyable(true);
-    // nAttr.setStorable(true);
-    // addAttribute(s_angleInfluence);
-    // attributeAffects(s_angleInfluence, outputGeom);
 
     s_cornerAutoRelax = nAttr.create("cornerAutoRelax", "carx", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
@@ -127,7 +113,7 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_cornerAutoRelax);
     attributeAffects(s_cornerAutoRelax, outputGeom);
 
-    s_cornerAutoRelaxStartAngle = nAttr.create("cornerAutoRelaxStartAngle", "crsa", MFnNumericData::kFloat, 20.0);
+    s_cornerAutoRelaxStartAngle = nAttr.create("autoRelaxStartAngle", "crsa", MFnNumericData::kFloat, 20.0);
     nAttr.setMin(0.0);
     nAttr.setMax(90.0);
     nAttr.setKeyable(true);
@@ -135,7 +121,7 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_cornerAutoRelaxStartAngle);
     attributeAffects(s_cornerAutoRelaxStartAngle, outputGeom);
 
-    s_cornerAutoRelaxEndAngle = nAttr.create("cornerAutoRelaxEndAngle", "crea", MFnNumericData::kFloat, 45.0);
+    s_cornerAutoRelaxEndAngle = nAttr.create("autoRelaxEndAngle", "crea", MFnNumericData::kFloat, 45.0);
     nAttr.setMin(0.0);
     nAttr.setMax(90.0);
     nAttr.setKeyable(true);
@@ -143,7 +129,7 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_cornerAutoRelaxEndAngle);
     attributeAffects(s_cornerAutoRelaxEndAngle, outputGeom);
 
-    s_cornerAutoRelaxDistance = nAttr.create("cornerAutoRelaxDistance", "crd", MFnNumericData::kFloat, 0.3);
+    s_cornerAutoRelaxDistance = nAttr.create("autoRelaxDistance", "crd", MFnNumericData::kFloat, 0.3);
     nAttr.setMin(0.0);
     nAttr.setMax(1.0);
     nAttr.setKeyable(true);
@@ -164,19 +150,6 @@ MStatus StickyLipsNode::initialize() {
     nAttr.setStorable(true);
     addAttribute(s_propagateInfluence);
     attributeAffects(s_propagateInfluence, outputGeom);
-
-
-    // s_stickyAutoAnimCache = nAttr.create("autoAnim", "aan", MFnNumericData::kFloat, 0.0);
-    // nAttr.setKeyable(true);
-    // nAttr.setStorable(true);
-    // addAttribute(s_stickyAutoAnim);
-    // attributeAffects(s_stickyAutoAnim, outputGeom);
-    //
-    // s_stickyAutoAnim = nAttr.create("autoAnim", "aan", MFnNumericData::kFloat, 0.0);
-    // nAttr.setKeyable(true);
-    // nAttr.setStorable(true);
-    // addAttribute(s_stickyAutoAnim);
-    // attributeAffects(s_stickyAutoAnim, outputGeom);
 
     // Using string for edge loop component tags
     MStatus status;
@@ -231,10 +204,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     const float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
 
 
-    const float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat(); // main influence of corner relax
-    const float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat(); // the angle between where the relax starts
-    const float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat(); // the angle between where the relax is at it's peak
-    const float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat(); // the percent of half segment the corner relax propagates
+    const float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat(); 
+    const float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat();
+    const float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat(); 
+    const float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat(); 
 
     const float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
     const float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
@@ -242,18 +215,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     const MString upperEdgeName = block.inputValue(s_EdgeLoopA).asString();
     const MString lowerEdgeName = block.inputValue(s_EdgeLoopB).asString();
 
-    // MObject edgeLoopAObj = block.inputValue(s_EdgeLoopA).data();
-    // MFnIntArrayData fnIntArrayDataA(edgeLoopAObj);
-    // MIntArray edgeLoopA = fnIntArrayDataA.array();
-    //
-    // MObject edgeLoopBObj = block.inputValue(s_EdgeLoopB).data();
-    // MFnIntArrayData fnIntArrayDataB(edgeLoopBObj);
-    // MIntArray edgeLoopB = fnIntArrayDataB.array();
-    //
-    //
-    // MGlobal::displayInfo(MString("StickyLipsNode deforming: fwd=") + fwd + " bwd=" + bwd + " dir=" + dir);
-    MGlobal::displayInfo(MString("Deforming at input index...") + multiIndex);
-
+    DEBUG_PRINT(MString("Deforming at input index...") + multiIndex);
 
     // Get the matrix which is used to define the direction and scale
     // of the offset.
@@ -275,11 +237,11 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
                                                                    multiIndex
                                                                    );
     if (state == MFnGeometryData::kCompleteGroup) {
-        MGlobal::displayWarning("All geo provided.. skipping"); return MS::kFailure;
+        MGlobal::displayWarning("[Steel Sticky Lips] Deformer needs a component tag to work on an area of the mesh"); return MS::kFailure;
     } if (state == MFnGeometryData::kInvalidGroup) {
-        MGlobal::displayError("Fuck my life...invalid!"); return MS::kFailure;
+        MGlobal::displayError("[Steel Sticky Lips] Invalid component group provided"); return MS::kFailure;
     } if (state == MFnGeometryData::kEmptyGroup) {
-        MGlobal::displayError("Fuck my life...NO geo?"); return MS::kFailure;
+        MGlobal::displayError("[Steel Sticky Lips] Invalid geometry. Unable to deform."); return MS::kFailure;
     }
 
     // // Get tag names
@@ -290,7 +252,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     const MFnGeometryData   meshData(meshObj, &returnStatus);
 
     if (returnStatus != MS::kSuccess) {
-        MGlobal::displayError("Shit happens..."); return returnStatus;
+        MGlobal::displayError("[Steel Sticky Lips] Unexpected error when initializing geometry accessor"); return returnStatus;
     }
 
     // MStringArray keysObj;
@@ -307,33 +269,26 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     if (!hasUpper || !hasLower)
     {
         if (hasLower)
-            MGlobal::displayWarning(MString("Missing 1 edge component tag named: ") + upperEdgeName);
+            MGlobal::displayWarning(MString("[Steel Sticky Lips] Missing 1 edge component tag named: ") + upperEdgeName);
         if (hasUpper)
-            MGlobal::displayWarning(MString("Missing 1 edge component tag named:") + lowerEdgeName);
+            MGlobal::displayWarning(MString("[Steel Sticky Lips] Missing 1 edge component tag named:") + lowerEdgeName);
         else
-            MGlobal::displayWarning(MString("Missing 2 edge component tag named:") + upperEdgeName + " and " + lowerEdgeName);
+            MGlobal::displayWarning(MString("[Steel Sticky Lips] Missing 2 edge component tag named:") + upperEdgeName + " and " + lowerEdgeName);
 
         return MS::kFailure;
     }
     if (meshData.componentTagType(upperEdgeName) != MFn::kMeshEdgeComponent) {
-        MGlobal::displayWarning(MString("Component tag:") + upperEdgeName + " kMeshEdgeComponent");
+        MGlobal::displayWarning(MString("Component tag:") + upperEdgeName + " must be of type kMeshEdgeComponent");
         return MS::kFailure;
     }
     if (meshData.componentTagType(lowerEdgeName) != MFn::kMeshEdgeComponent) {
-        MGlobal::displayWarning(MString("Component tag:") + lowerEdgeName + " kMeshEdgeComponent");
+        MGlobal::displayWarning(MString("Component tag:") + lowerEdgeName + " must be of type kMeshEdgeComponent");
         return MS::kFailure;
     }
 
     // Extract component data
     MObject upperEdgeObj = meshData.componentTagContents(upperEdgeName);
     MObject lowerEdgeObj = meshData.componentTagContents(lowerEdgeName);
-
-    // const MFnSingleIndexedComponent fnUpper(upperEdgeObj);
-    // const MFnSingleIndexedComponent fnLower(lowerEdgeObj);
-    //
-    // MIntArray upperIndices, lowerIndices;
-    // fnUpper.getElements(upperIndices);
-    // fnLower.getElements(lowerIndices);
 
     // Reorder based on connectivity
     auto createOrderedVertices = [&](MObject& edgeObj)
@@ -415,7 +370,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     std::vector<MVector>* orderedPositionsUpEdge = &pts_a.first;
     std::vector<MVector>* orderedPositionsBottomEdge = &pts_b.first;
 
-
     std::vector<int> resampleOriginalIndex; // resampled point > original orderedPts pos or originalIndexes mesh index
     std::vector<int> originalToResampleIndex; // from the original point, to the closest point on the resampled. Since we ALWAYS increase, we always have a fairly easy match.
 
@@ -460,9 +414,9 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     double cornerDistance = (totalLength / 2.0) * cornerAutoRelaxDistance;
 
 
-    // Remove stickyness based on the angle between corner top-bottom + 1/3 of arclen
+    // Remove stickyness based on the angle between corner top-bottom + a portion of half arclen
     // By computing A-A1 to B-B1 (and opposite) we should get a nice float to auto
-    // modulate the corner stickiness, that with distanc ebased approaches alone is not enough
+    // modulate the corner stickiness, that with distance based approaches alone is not enough
     //
     //     ___ A1 _____ C1 ___
     // A  /                   \  C
@@ -519,7 +473,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
 
 
-
     // Now for each point A-Mid-B decide the position
     for (int x = 0; x < largerCount; x++)
     {
@@ -528,28 +481,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         int smallerIdx = resampleOriginalIndex[x];
         MVector& posB  = smaller->first[smallerIdx];
 
-        // Distance between A-B point to control general influence
-        double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
-
-        // ------- seems controllable
-        double range = stickyMaxThreshold - stickyMinThreshold;
-        double stickyMinRange = stickyMinThreshold - (range + (1.0 - stickyAmount));   // Distance where stickiness starts (min range)
-        double stickyMaxRange = stickyMaxThreshold - (range + (1.0 - stickyAmount));   // Distance where stickiness is maxed out (max range)
-
-
-        // Map distance to a 0-1 signal based on min/max range
-        double distanceSignal = std::clamp(
-            (distanceFromMid - stickyMaxRange) / (stickyMinRange - stickyMaxRange),
-            0.0,
-            1.0
-        );
+        double cornerRelaxValue = 0;
 
         // Simple distance base seal or corner relax enanched
-        if (cornerAutoRelax <= 0.0)
-        {
-            blendVals[x] = distanceSignal;
-        }
-        else
+        if (cornerAutoRelax > 0.0)
         {
             // distance from nearest end (symmetric)
             double distFromEnd = std::min(arcLength[x], totalLength - arcLength[x]);
@@ -565,15 +500,34 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
             // Now multiply it by the actual angle influence (0-1) and by the angle corner auto relax
             // We will have a gradual value from 0 to 1, guided from the angle between at corners, blending towards the middle
-            double cornerRelaxValue = cornerAreaInfluence * targetAngle * cornerAutoRelax;
+             cornerRelaxValue = cornerAreaInfluence * targetAngle * cornerAutoRelax;
 
             // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
-            blendVals[x] = distanceSignal - cornerRelaxValue;
         }
+
+        // Distance between A-B point to control general influence
+        double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) + std::pow((posA.y - posB.y), 2) + std::pow((posA.z - posB.z), 2));
+
+        // ------- seems controllable
+        double range = stickyMaxThreshold - stickyMinThreshold;
+        double stickyMinRange = stickyMinThreshold - (range + (1.0 - stickyAmount)) - (cornerRelaxValue*2);   // Distance where stickiness starts (min range)
+        double stickyMaxRange = stickyMaxThreshold - (range + (1.0 - stickyAmount)) - (cornerRelaxValue*2);   // Distance where stickiness is maxed out (max range)
+
+
+        // Map distance to a 0-1 signal based on min/max range
+        double distanceSignal = std::clamp(
+            (distanceFromMid - stickyMaxRange) / (stickyMinRange - stickyMaxRange),
+            0.0,
+            1.0
+        );
+
+        blendVals[x] = distanceSignal;
+
+
     }
 
     // Pretty decent "smooth/relax" of the whole edge
-    int passes = std::max(1, int(stickyFalloff * 3));  // 0->1, 1->3 passes
+    int passes = std::max(1, static_cast<int>(stickyFalloff * 3));  // 0->1, 1->3 passes
     double strength = std::min(1.0, stickyFalloff * 2.0);  // intensity per pass
 
     for (int p = 0; p < passes; p++)
@@ -620,7 +574,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         edgeTargetPos[posBMeshIndex] = blendedB;
     }
 
-
     // ------------------ blend weights ??
     std::unordered_map<int, double> vertexWeights;
     std::unordered_map<int, MVector> vertexTargets;
@@ -650,7 +603,8 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
         for (const auto& [idx, weight] : vertexWeights)
         {
-            if (weight <= 0.01) continue;
+            if (weight <= 0.01)
+                continue;
 
             int prevIdx = 0;
             neighborIter.setIndex(idx, prevIdx);
@@ -661,7 +615,9 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             {
                 int neighborIdx = neighborList[i];
 
-                if (edgeVertices.count(neighborIdx)) continue;  // never overwrite edge verts
+                // never overwrite edge vertices!!
+                if (edgeVertices.contains(neighborIdx))
+                    continue;
 
                 double propagatedWeight = weight * propagationFalloff;
                 auto it = newWeights.find(neighborIdx);
@@ -697,61 +653,17 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     for ( ; !iter.isDone(); iter.next())
     {
         auto meshVtxIndex = iter.index();
-        if (deformedPositions.contains(meshVtxIndex))
+
+        // Get in the if and the data with one O(1) query
+        if (auto posIter = deformedPositions.find(meshVtxIndex); posIter != deformedPositions.end())
         {
             MPoint pt = iter.position();
-            const auto& newP = deformedPositions[meshVtxIndex];
+            const auto& newP = posIter->second;
             iter.setPosition(pt + (newP - pt) * envelope);
             count++;
-            // MGlobal::displayInfo(MString("moving mesh idx: ") + subIter.index() + " to " + newP.x + ", " + newP.y  + ", " + newP.z);
         }
     }
-    MGlobal::displayInfo(MString("Moved ") + count + " points");
-
-
-    // //
-    //
-    // // Iterate through points of the geo subset
-    // for (; !subIter.isDone(); subIter.next())
-    // {
-    //     MPoint pt = subIter.position();
-    //     MGlobal::displayInfo(MString("mesh idx: ") + iter.index());
-    //
-    //     int idx = subIter.index();
-    //     bool inUpper = upperIndices.indexOf(idx) >= 0;
-    //     bool inLower = lowerIndices.indexOf(idx) >= 0;
-    //
-    //     MGlobal::displayInfo(MString("idx: ") + idx
-    //         + " upper: " + inUpper
-    //         + " lower: " + inLower);
-    //
-    //     // ... do work ...
-    //     // subIter.setPosition(pt);
-    // }
-
-    // iterate through each point in the geometry
-    //
-    // for ( ; !iter.isDone(); iter.next())
-    // {
-    //     MPoint pt = iter.position();
-    //     // MGlobal::displayInfo(MString("mesh idx: ") + iter.index());
-    //     // pt *= omatinv;
-    //
-    //     const float weight = weightValue(block, multiIndex,iter.index());
-    //
-    //     // offset algorithm
-    //     //
-    //     pt.y = pt.y + envelope * weight + 10;
-    //     //
-    //     // end of offset algorithm
-    //
-    //     // pt *= omat;
-    //     iter.setPosition(pt);
-    // }
-
-
-
-
+    DEBUG_PRINT(MString("Moved ") + count + " points");
 
     return MS::kSuccess;
 }

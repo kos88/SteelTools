@@ -64,6 +64,8 @@ set(MAYA_ROOT_PATH "./maya")
 set(PLUGINS_PATH "plug-ins/${MAYA_VERSION}")
 
 install(CODE "
+    set(CMAKE_SOURCE_DIR  \"${CMAKE_SOURCE_DIR}\")
+    set(CMAKE_BUILD_TYPE  \"${CMAKE_BUILD_TYPE}\")
     set(MAYA_VERSION \"${MAYA_VERSION}\")
     set(PLATFORM \"${PLATFORM}\")
     set(MODULE_NAME \"${MODULE_NAME}\")
