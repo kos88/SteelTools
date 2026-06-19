@@ -522,7 +522,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         double stickyMinRange = stickyMinThreshold - (range + (1.0 - stickyAmount)) - (cornerRelaxValue*2);   // Distance where stickiness starts (min range)
         double stickyMaxRange = stickyMaxThreshold - (range + (1.0 - stickyAmount)) - (cornerRelaxValue*2);   // Distance where stickiness is maxed out (max range)
 
-
         // Map distance to a 0-1 signal based on min/max range
         double blendValue = std::clamp(
             (distanceFromMid - stickyMaxRange) / (stickyMinRange - stickyMaxRange),
@@ -530,15 +529,17 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             1.0
         );
 
-        // Store for blur
-        blendVals[x] = blendValue;
+        double sharpness = 4.0;
+        blendValue = std::pow(blendValue, sharpness);
+
+        blendVals[x] = blendValue;  // Store for blur pass in later stage
 
     }
 
 
     // Sequentially blur the values with a small gaussian like kernel of before and after
-    int passes = std::max(1, static_cast<int>(stickyFalloff * 3));  // 0->1, 1->3 passes
-    double strength = std::min(1.0, stickyFalloff * 2.0);  // intensity per pass
+    int passes = 3;//std::max(1, static_cast<int>(stickyFalloff * 3));  // 0->1, 1->3 passes
+    double strength = 1.0;//std::min(1.0, stickyFalloff * 2.0);  // intensity per pass
 
     for (int p = 0; p < passes; p++)
     {

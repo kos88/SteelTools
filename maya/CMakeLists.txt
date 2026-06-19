@@ -1,3 +1,5 @@
+set(MODULE_NAME SteelToolsMaya)  # This is the name that will be used for the target
+
 set(HEADERS
     CorneaPushNode.h
     StickyLipsNode.h
@@ -20,7 +22,7 @@ endif()
 
 find_package(Maya REQUIRED)
 
-set(MODULE_NAME SteelToolsMaya)  # This is the name that will be used for the target
+
 add_library(${MODULE_NAME} SHARED ${SOURCES})
 set_target_properties(${MODULE_NAME} PROPERTIES SUFFIX ".mll" LINKER_LANGUAGE CXX)
 set_property(TARGET ${MODULE_NAME} PROPERTY CXX_STANDARD 23)
