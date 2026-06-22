@@ -11,6 +11,7 @@
 
 #include "SteelMayaCommon.h"
 
+#include <maya/MObjectHandle.h>
 #include <maya/MFnStringData.h>
 #include <maya/MItMeshEdge.h>
 #include <maya/MItMeshVertex.h>
@@ -27,6 +28,7 @@
 #include <maya/MGlobal.h>
 
 #include "DebugUtils.h"
+#include "MeshUtils.h"
 
 MTypeId StickyLipsNode::id = SteelMaya::kStickyLipsNodeId;
 MString StickyLipsNode::name = SteelMaya::kStickyLipsNodeName;
@@ -241,6 +243,7 @@ MStatus StickyLipsNode::initialize() {
     return MS::kSuccess;
 }
 
+
 void printIntArray(const MIntArray& printable, const MString& name)
 {
     MString output = name + ": [";
@@ -262,41 +265,22 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // The envelope is simply a scale factor.
     //
     const MDataHandle envData = block.inputValue(envelope, &returnStatus);
+
     if (MS::kSuccess != returnStatus)
         return returnStatus;
 
+    if (multiIndex != 0)
+    {
+        MGlobal::displayWarning(MString("") + name + " only operates on one mesh, skipping index " + multiIndex);
+        return MS::kFailure;
+    }
+
     const float envelope = envData.asFloat();
 
-    const int propagationPasses = block.inputValue(s_propagateIterations).asInt();
-    const float propagateInfluence = block.inputValue(s_propagateInfluence).asFloat();
-    // const float propagateTension = block.inputValue(s_propagateTension).asFloat();
+    if (envelope <= 0.0)
+        return MS::kSuccess;
 
-    const int propagateHold = block.inputValue(s_propagateHold).asInt();
-    // const float propagateHoldTension = block.inputValue(s_propagateHoldTension).asFloat();
-    const float propagateHoldInfluence = block.inputValue(s_propagateHoldInfluence).asFloat();
-
-
-    const float stickyMaxThreshold = block.inputValue(s_distanceMaxThreshold).asFloat();
-    const float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
-
-
-    const float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat(); 
-    const float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat();
-    const float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat(); 
-    const float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat(); 
-
-    const float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
-    // const float stickyFalloffSmooth = block.inputValue(s_stickyFalloffSharpness).asFloat();
-    const float stickySharpness = block.inputValue(s_stickySharpness).asFloat();
-    // const float stickySharpnessStrength = block.inputValue(s_stickySharpnessStrength).asFloat();
-    const float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
-
-    const MString upperEdgeName = block.inputValue(s_EdgeLoopA).asString();
-    const MString lowerEdgeName = block.inputValue(s_EdgeLoopB).asString();
-
-    DEBUG_PRINT(MString("Deforming at input index...") + multiIndex);
-
-    // Pull geo input data and make sure we have a valid subset
+    // --------------------------------------------- Geo validation ------------------------------------------------- //
     MArrayDataHandle hInputArray  = block.inputArrayValue(input); // Input plug
     hInputArray.jumpToElement(multiIndex); // Input[x] plug
     MDataHandle currentInput = hInputArray.inputValue();
@@ -322,21 +306,17 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     MFnMesh                 fnMesh(meshObj);
     const MFnGeometryData   meshData(meshObj, &returnStatus);
+    MObjectHandle           meshMHandle(meshObj);
 
     if (returnStatus != MS::kSuccess) {
         MGlobal::displayError("[Steel Sticky Lips] Unexpected error when initializing geometry accessor");
         return returnStatus;
     }
 
-    // MStringArray keysObj;
-    // meshData.componentTags(keysObj);
-    // MGlobal::displayInfo("Component tags found...");
-    // for (auto& element: keysObj)
-    // {
-    //     MGlobal::displayInfo(element);
-    // }
-
     // Validate component and types
+    const MString upperEdgeName = block.inputValue(s_EdgeLoopA).asString();
+    const MString lowerEdgeName = block.inputValue(s_EdgeLoopB).asString();
+
     const bool hasUpper = meshData.hasComponentTag(upperEdgeName);
     const bool hasLower = meshData.hasComponentTag(lowerEdgeName);
     if (!hasUpper || !hasLower)
@@ -363,133 +343,162 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     MObject upperEdgeObj = meshData.componentTagContents(upperEdgeName);
     MObject lowerEdgeObj = meshData.componentTagContents(lowerEdgeName);
 
-    // Reorder based on connectivity
-    auto createOrderedVertices = [&](MObject& edgeObj)
-    {
-        struct Neighbours { int a = -1, b = -1; };
-        std::unordered_map<int, Neighbours> adj;
+    // Base our logic on component number only
+    MFnSingleIndexedComponent fnUpper(upperEdgeObj);
+    MFnSingleIndexedComponent fnLower(lowerEdgeObj);
+    int upperCount = fnUpper.elementCount();
+    int lowerCount = fnLower.elementCount();
+    int areaCount = subIter.count();
 
-        MItMeshEdge edgeIter(meshObj, edgeObj);
-        for (; !edgeIter.isDone(); edgeIter.next())
-        {
-            int v0 = edgeIter.index(0);
-            int v1 = edgeIter.index(1);
-
-            auto& vertexA_adj = adj[v0];
-            if (vertexA_adj.a == -1) vertexA_adj.a = v1;
-            else vertexA_adj.b = v1;
-
-            auto& vertexB_adj = adj[v1];
-            if (vertexB_adj.a == -1) vertexB_adj.a = v0;
-            else vertexB_adj.b = v0;
-        }
-
-        // Find start: endpoint has only one neighbour
-        int start = adj.begin()->first;
-        for (auto& [v, n] : adj)
-            if (n.b == -1) { start = v; break; }
-
-        // Walk
-        std::vector<MVector> orderedPts;
-        std::vector<int> originalIndexes;
-        orderedPts.reserve(adj.size());
-
-        int prev = -1;
-        int cur  = start;
-        while (cur != -1)
-        {
-            MPoint pt;
-            fnMesh.getPoint(cur, pt, MSpace::kObject);
-
-            // soa output
-            orderedPts.emplace_back(pt);
-            originalIndexes.push_back(cur);
-
-            auto [nA, nB] = adj[cur];
-            int next = (nA != prev) ? nA : nB;
-            if (next == start) next = -1;
-            prev = cur;
-            cur  = next;
-        }
-
-        return std::make_pair(orderedPts, originalIndexes);
-
+    // Now decide if we need to compute the caches, or we can reuse them
+    MeshFingerprint currentPrint{
+        fnMesh.numVertices(),
+        fnMesh.numPolygons(),
+        meshMHandle.hashCode(),
+        upperCount,
+        lowerCount,
+        areaCount
     };
 
+    if (currentPrint.hashCode != m_lastFingerprint.hashCode)
+    {
+        DEBUG_PRINT("Different MESH request recompute of each cache");
+        m_computeCaches = true;
+        m_lastFingerprint = currentPrint;
+    }
+
+    if (currentPrint.polyCount != m_lastFingerprint.polyCount || currentPrint.vertCount != m_lastFingerprint.vertCount)
+    {
+        DEBUG_PRINT("Different mesh TOPOLOGY request recompute of each cache");
+        m_computeCaches = true;
+        m_lastFingerprint = currentPrint;
+    }
+
+    if (currentPrint.upperTagCount != m_lastFingerprint.upperTagCount ||
+        currentPrint.upperTagCount != m_lastFingerprint.upperTagCount ||
+        currentPrint.lowerTagCount != m_lastFingerprint.lowerTagCount
+        )
+    {
+        DEBUG_PRINT("Different mesh TAG request recompute of each cache");
+        m_computeCaches = true;
+        m_lastFingerprint = currentPrint;
+    }
+
+
     // ---------------- From here, we can probably move it outside of maya, if we want it generic and portable to other DCC
-    auto pts_a = createOrderedVertices(upperEdgeObj);
-    auto pts_b = createOrderedVertices(lowerEdgeObj);
-
-    if (__build_debug_curves)
-    {
-        if (pts_a.first.size())
-            DebugUtils::createDebugCurve("up", pts_a.first, true);
-        if (pts_b.first.size())
-            DebugUtils::createDebugCurve("down", pts_b.first, true);
-    }
-
-    // We now resample the segment with LESS points to have a even point number on both sides.
-    // the side without resample, will simply "snap" on the middle line.
-    // the side with the resample, will snap to the closest point of the middle line.
-
-    // *-------*-------*-------*-------* << Original A, more points
-    // |       |       |       |       |
-    // *-------*-------*-------*-------* Original B, less points
-    // |        \       \             /
-    // *---------*--------*----------* Original B, less points
-
-
-    // A-B data
-    std::vector<MVector>* orderedPositionsUpEdge = &pts_a.first;
-    std::vector<MVector>* orderedPositionsBottomEdge = &pts_b.first;
-
-    std::vector<int> resampleOriginalIndex; // resampled point > original orderedPts pos or originalIndexes mesh index
-    std::vector<int> originalToResampleIndex; // from the original point, to the closest point on the resampled. Since we ALWAYS increase, we always have a fairly easy match.
-
-    // Create pointers and numbers for larger and smaller
-    auto* larger  = orderedPositionsUpEdge->size() >= orderedPositionsBottomEdge->size() ? &pts_a  : &pts_b;
-    auto* smaller = orderedPositionsUpEdge->size() <  orderedPositionsBottomEdge->size() ? &pts_a  : &pts_b;
-    const int largerCount  = static_cast<int>(larger->first.size());
-    const int smallerCount = static_cast<int>(smaller->first.size());
-
-    resampleOriginalIndex.resize(largerCount);
-    originalToResampleIndex.resize(smallerCount, -1);
-
-    for (int largerIdx = 0; largerIdx < largerCount; ++largerIdx)
-    {
-        double lerpT      = static_cast<double>(largerIdx) * (smallerCount - 1) / (largerCount - 1);
-        int smallerIdx    = static_cast<int>(std::floor(lerpT));
-        smallerIdx        = std::clamp(smallerIdx, 0, smallerCount - 2);
-        double remainder  = lerpT - smallerIdx;
-
-        resampleOriginalIndex[largerIdx]     = smallerIdx;
-        originalToResampleIndex[smallerIdx]  = largerIdx;
-
-        MVector resampledSmaller = smaller->first[smallerIdx] + (smaller->first[smallerIdx + 1] - smaller->first[smallerIdx]) * remainder;
-    }
-
-    // These are all here, but some should be precomputed only once!!
-    std::unordered_map<int, MVector> deformedPositions;
-
-    // the "middle" position each edge vertex is moving toward, needed for growing/blending weights
-    std::unordered_map<int, MVector> edgeTargetPos;
-    std::unordered_map<int, MVector> edgeDirectionVectors;
-
-    // A temp storage where the edge are "sticking" to do a second blur pass
-    std::vector<double> blendVals(largerCount);
-
     double startAngleInfluence = 1.0;
     double endAngleInfluence = 1.0;
 
-    // precompute cumulative arc length along larger loop
-    std::vector<double> arcLength(largerCount, 0.0);
-    for (int x = 1; x < largerCount; x++)
+    // if (m_computeCaches)
+    if (true) // we need to remove the point storage completely... we can't cache positions.. dhoiiyy
     {
-        MVector delta = larger->first[x] - larger->first[x - 1];
-        arcLength[x] = arcLength[x - 1] + delta.length();
+
+        m_upperPoints = SteelMeshUtils::createOrderedVertices(upperEdgeObj, meshObj);
+        m_lowerPoints = SteelMeshUtils::createOrderedVertices(lowerEdgeObj, meshObj);
+        // DEBUG_PRINT(MString("Upper curve points") + std::to_string(m_upperPoints.first.size()).c_str());
+
+        // We now resample the segment with LESS points to have a even point number on both sides.
+        // the side without resample, will simply "snap" on the middle line.
+        // the side with the resample, will snap to the closest point of the middle line.
+
+        // *-------*-------*-------*-------* << Original A, more points
+        // |       |       |       |       |
+        // *-------*-------*-------*-------* Original B, less points
+        // |        \       \             /
+        // *---------*--------*----------* Original B, less points
+
+
+        // A-B data
+        std::vector<MVector>* orderedPositionsUpEdge = &m_upperPoints.first;
+        std::vector<MVector>* orderedPositionsBottomEdge = &m_lowerPoints.first;
+
+
+        // Create pointers and numbers for larger and smaller
+        m_larger  = orderedPositionsUpEdge->size() >= orderedPositionsBottomEdge->size() ? &m_upperPoints  : &m_lowerPoints;
+        m_smaller = orderedPositionsUpEdge->size() <  orderedPositionsBottomEdge->size() ? &m_upperPoints  : &m_lowerPoints;
+        m_largerCount  = static_cast<int>(m_larger->first.size());
+        const int smallerCount = static_cast<int>(m_smaller->first.size());
+
+        m_resampleOriginalIndex.resize(m_largerCount);
+        m_originalToResampleIndex.resize(smallerCount, -1);
+
+        for (int largerIdx = 0; largerIdx < m_largerCount; ++largerIdx)
+        {
+            double lerpT      = static_cast<double>(largerIdx) * (smallerCount - 1) / (m_largerCount - 1);
+            int smallerIdx    = static_cast<int>(std::floor(lerpT));
+            smallerIdx        = std::clamp(smallerIdx, 0, smallerCount - 2);
+            double remainder  = lerpT - smallerIdx;
+
+            m_resampleOriginalIndex[largerIdx]     = smallerIdx;
+            m_originalToResampleIndex[smallerIdx]  = largerIdx;
+
+            MVector resampledSmaller = m_smaller->first[smallerIdx] + (m_smaller->first[smallerIdx + 1] - m_smaller->first[smallerIdx]) * remainder;
+        }
+
+
+        // precompute cumulative arc length along larger loop
+        m_arcLength = std::vector(m_largerCount, 0.0);
+
+        for (int x = 1; x < m_largerCount; x++)
+        {
+            MVector delta = m_larger->first[x] - m_larger->first[x - 1];
+            m_arcLength[x] = m_arcLength[x - 1] + delta.length();
+        }
+        // DebugUtils::createDebugCurve("upper", m_upperPoints.first, true);
+        // DebugUtils::createDebugCurve("lower", m_lowerPoints.first, true);
     }
-    double totalLength = arcLength[largerCount - 1];
+
+    // ---------------------------------------- Values extraction --------------------------------------------------- //
+    const int propagationPasses = block.inputValue(s_propagateIterations).asInt();
+    const float propagateInfluence = block.inputValue(s_propagateInfluence).asFloat();
+    // const float propagateTension = block.inputValue(s_propagateTension).asFloat();
+
+    const int propagateHold = block.inputValue(s_propagateHold).asInt();
+    // const float propagateHoldTension = block.inputValue(s_propagateHoldTension).asFloat();
+    const float propagateHoldInfluence = block.inputValue(s_propagateHoldInfluence).asFloat();
+
+
+    const float stickyMaxThreshold = block.inputValue(s_distanceMaxThreshold).asFloat();
+    const float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
+
+
+    const float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat();
+    const float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat();
+    const float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat();
+    const float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat();
+
+    const float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
+    // const float stickyFalloffSmooth = block.inputValue(s_stickyFalloffSharpness).asFloat();
+    const float stickySharpness = block.inputValue(s_stickySharpness).asFloat();
+    // const float stickySharpnessStrength = block.inputValue(s_stickySharpnessStrength).asFloat();
+    const float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
+
+    // Dirty propagation caches based on expansion parameters
+    if (m_lastPropagateHold != propagateHold || m_lastPropagationPasses != propagationPasses)
+    {
+        m_lastPropagateHold = propagateHold;
+        m_lastPropagationPasses = propagationPasses;
+        DEBUG_PRINT("Parameter change requested cache recompute");
+        m_computeCaches = true;
+    }
+
+    // DEBUG_PRINT(MString("Deforming at input index...") + multiIndex);
+
+
+    // MStringArray keysObj;
+    // meshData.componentTags(keysObj);
+    // MGlobal::displayInfo("Component tags found...");
+    // for (auto& element: keysObj)
+    // {
+    //     MGlobal::displayInfo(element);
+    // }
+
+
+    // A temp storage where the edge are "sticking" to do a second blur pass
+    std::vector<double> blendVals(m_largerCount);
+    double totalLength = m_arcLength[m_largerCount - 1];
     double cornerDistance = (totalLength / 2.0) * cornerAutoRelaxDistance;
+
 
     // Remove stickyness based on the angle between corner top-bottom + a portion of half arclen
     // By computing the angle between A-A1 to B-B1 (and opposite) we should get a nice float to auto
@@ -505,24 +514,24 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         int leftCornerAngleIndex = -1;
         int rightCornerAngleIndex = -1;
 
-        for (int j = 0; j < largerCount; j++)
+        for (int j = 0; j < m_largerCount; j++)
         {
-            if (arcLength[j] <= cornerDistance)
+            if (m_arcLength[j] <= cornerDistance)
                 leftCornerAngleIndex = j;
-            if (arcLength[j] >= totalLength - cornerDistance) {
+            if (m_arcLength[j] >= totalLength - cornerDistance) {
                 rightCornerAngleIndex = j;
                 break;
             }
         }
 
         // Compute slopes using startCornerIdx and endCornerIdx
-        MVector startDirA = (larger->first[leftCornerAngleIndex] - larger->first[0]).normal();
-        MVector startDirB = (smaller->first[resampleOriginalIndex[leftCornerAngleIndex]] - smaller->first[resampleOriginalIndex[0]]).normal();
+        MVector startDirA = (m_larger->first[leftCornerAngleIndex] - m_larger->first[0]).normal();
+        MVector startDirB = (m_smaller->first[m_resampleOriginalIndex[leftCornerAngleIndex]] - m_smaller->first[m_resampleOriginalIndex[0]]).normal();
         double startSlopeDot = std::clamp(startDirA * startDirB, -1.0, 1.0);
         double startSlopeAngle = std::acos(startSlopeDot) * 90.0 / M_PI; // yes half angle!
 
-        MVector endDirA = (larger->first[largerCount-1] - larger->first[rightCornerAngleIndex]).normal();
-        MVector endDirB = (smaller->first[resampleOriginalIndex[largerCount-1]] - smaller->first[resampleOriginalIndex[rightCornerAngleIndex]]).normal();
+        MVector endDirA = (m_larger->first[m_largerCount-1] - m_larger->first[rightCornerAngleIndex]).normal();
+        MVector endDirB = (m_smaller->first[m_resampleOriginalIndex[m_largerCount-1]] - m_smaller->first[m_resampleOriginalIndex[rightCornerAngleIndex]]).normal();
         double endSlopeDot = std::clamp(endDirA * endDirB, -1.0, 1.0);
         double endSlopeAngle = std::acos(endSlopeDot) * 90.0 / M_PI; // yes half angle!
 
@@ -550,12 +559,12 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
 
     // Now for each point A-Mid-B decide the position
-    for (int x = 0; x < largerCount; x++)
+    for (int x = 0; x < m_largerCount; x++)
     {
-        const MVector& posA = larger->first[x];
+        const MVector& posA = m_larger->first[x];
 
-        const int smallerIdx = resampleOriginalIndex[x];
-        const MVector& posB  = smaller->first[smallerIdx];
+        const int smallerIdx = m_resampleOriginalIndex[x];
+        const MVector& posB  = m_smaller->first[smallerIdx];
 
         double cornerRelaxValue = 0;
 
@@ -563,13 +572,13 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         if (cornerAutoRelax > 0.0)
         {
             // distance from nearest end (symmetric)
-            double distFromEnd = std::min(arcLength[x], totalLength - arcLength[x]);
+            double distFromEnd = std::min(m_arcLength[x], totalLength - m_arcLength[x]);
 
             // Normalize it to arc-len and clamp to our corner area
             double cornerAreaInfluence = std::max(0.0, 1.0 - (distFromEnd / cornerDistance));
 
             // Get normalized position along the curve (0 = start, 1 = end)
-            double t = arcLength[x] / totalLength;
+            double t = m_arcLength[x] / totalLength;
 
             // Blend between start and end angles based on position (angle influence is 0 when closed, towards 1 when closed)
             double targetAngle = (1.0 - t) * startAngleInfluence + t * endAngleInfluence;
@@ -582,14 +591,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         }
 
         // Distance between A-B point to control general influence.. (maybe we can avoid real distance ans skip sqrt)
-        // double distanceFromMid = std::pow((posA.x - posB.x), 1) +
-        //                                    std::pow((posA.y - posB.y), 1) +
-        //                                    std::pow((posA.z - posB.z), 1)
-        //                                    ;
-        // double distanceFromMid = std::pow((posA.x - posB.x), 2) +
-        //                            std::pow((posA.y - posB.y), 2) +
-        //                            std::pow((posA.z - posB.z), 2)
-        //                            ;
         double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) +
                                            std::pow((posA.y - posB.y), 2) +
                                            std::pow((posA.z - posB.z), 2)
@@ -607,55 +608,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             1.0
         );
 
-        // double sharpness = stickySharpness;//10.0;
         blendValue = std::pow(blendValue, stickySharpness + 1.0); // controls the curve make it up down
-        // blendValue = std::clamp(std::pow(blendValue, stickySharpness + 1.0) * stickySharpnessStrength, 0.0, 1.0); // cool but a bit redundant?
-        //
-
-        // double s = stickySharpnessStrength;
-        // double k = 0;//stickySharpness;
-
-        // double t  = std::pow(blendValue, k + 1.0);
-        // double mt = t;
-        // blendValue = (2.0 * mt * t * s) + (t * t);
-
-        // // fix the control point height at 0.5 (midpoint, doesn't affect endpoints)
-        // // only move it left/right with k
-        // double p = k; // 0-1, where along x the knee sits
-        // double t = blendValue;
-        //
-        // // reparametrize: find bezier t that corresponds to this x position
-        // // for quadratic bezier with control point at (p, 0.5):
-        // // x(t) = 2*(1-t)*t*p + t*t  ->  solve for t given x
-        // // closed form: t = (p - sqrt(p*p + x*(1-2*p))) / (2*p - 1 - epsilon)
-        // double denom = 2.0 * p - 1.0;
-        // double bt;
-        // if (std::abs(denom) < 0.001) {
-        //     bt = t; // p~0.5, degenerate to linear
-        // } else {
-        //     bt = (p - std::sqrt(std::max(0.0, p*p + t*(1.0 - 2.0*p)))) / denom;
-        // }
-        // bt = std::clamp(bt, 0.0, 1.0);
-        //
-        // // now apply sharpness on the reparametrized t
-        // blendValue = std::pow(bt, s + 1.0);
-
-        // blendValue = std::pow(blendValue, s) * std::pow(blendValue * blendValue * (3.0 - 2.0 * blendValue), k);
-        // blendValue = std::clamp(std::pow(blendValue, s) * k, 0.0, 1.0);
-        //
-        // double k = 5.0;
-        // double c = 0.05;
-        // blendValue = 1.0 / (1.0 + std::exp(-k * (blendValue - c)));
-
-
-
-
-
-
         blendVals[x] = blendValue;  // Store for blur pass in later stage
 
     }
-// serve usa sorta di delay....
 
     // Sequentially blur the values with a small gaussian like kernel of before and after
     int passes = std::max(1, static_cast<int>(stickyFalloff * 3));  // 0->1, 1->3 passes
@@ -664,27 +620,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     for (int p = 0; p < passes; p++)
     {
         std::vector<double> blurred = blendVals;
-        for (int x = 0; x < largerCount; x++)
+        for (int x = 0; x < m_largerCount; x++)
         {
             int left = std::max(x - 1, 0);
-            int right = std::min(x + 1, largerCount - 1);
-
-            // strange... it's just better to keep low low smooth passes
-            // if (blendVals[x] <= (1.0 - stickyFalloffSmooth))
-            //     continue;
-
-            // if (blendVals[x] >= stickyFalloffSmooth + 0.1)
-            //     continue;
-
-            // double leftKernel = blendVals[left] < 1.0 ? 0.25 : 0;
-            // double rightKernel = blendVals[right] < 1.0 ? 0.25 : 0;
-            // double middleKernel = leftKernel < 0 && rightKernel < 0 ? 1.0 : 0.5;
-            //
-            // double smoothed = blendVals[left] * leftKernel +
-            //       blendVals[x] * middleKernel +
-            //       blendVals[right] * rightKernel;
-
-            //
+            int right = std::min(x + 1, m_largerCount - 1);
             double smoothed = blendVals[left] * 0.25 +
                               blendVals[x] * 0.5 +
                               blendVals[right] * 0.25;
@@ -695,176 +634,140 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         blendVals = blurred;
     }
 
-    // ---------------------------------------------------------------------
-    // NOTE: the whole propagation should really be computed ONCE and cached
-    // as <sticky id, weight> to just compute the final pos in the deform loop
-    // ---------------------------------------------------------------------
-    // Compute sticky edge deformed positions and targets for weight propagation
-    for (int x = 0; x < largerCount; x++)
+
+    // ------------------ blend weights computation and cache reset
+    if (m_computeCaches)
     {
-        MVector& posA = larger->first[x];
-        int posAMeshIndex = larger->second[x];
+        m_vertexCache.clear();
+        m_edgeVertices.clear();
 
-        int smallerIdx = resampleOriginalIndex[x];
-        MVector& posB  = smaller->first[smallerIdx];
-        int posBMeshIndex = smaller->second[smallerIdx];
-
-        double blendVal = blendVals[x];
-
-        MVector posM = (posA + posB) * 0.5;
-        MVector blendedA = posA + blendVal * (posM - posA);
-        MVector blendedB = posB + blendVal * (posM - posB);
-
-        deformedPositions[posAMeshIndex] = blendedA;
-        deformedPositions[posBMeshIndex] = blendedB;
-
-        // Store the full 100% target (posM) for neighbor propagation
-        edgeTargetPos[posAMeshIndex] = posM;//blendedA;
-        edgeTargetPos[posBMeshIndex] = posM;// blendedB;
-
-        // Store the direction vector to blend positions
-        edgeDirectionVectors[posAMeshIndex] = (posM - posA);
-        edgeDirectionVectors[posBMeshIndex] = (posM - posB);
-    }
-
-    // ------------------ blend weights
-    std::unordered_map<int, double> vertexWeights;
-    std::unordered_map<int, MVector> vertexTargets;
-    std::unordered_map<int, MVector> vertexDirections;
-    std::unordered_set<int> edgeVertices;
-
-    for (int x = 0; x < largerCount; x++)
-    {
-        int posAMeshIndex = larger->second[x];
-        int posBMeshIndex = smaller->second[resampleOriginalIndex[x]];
-        double blendVal = blendVals[x];
-
-        vertexWeights[posAMeshIndex] = blendVal;
-        vertexWeights[posBMeshIndex] = blendVal;
-        vertexTargets[posAMeshIndex] = edgeTargetPos[posAMeshIndex];
-        vertexTargets[posBMeshIndex] = edgeTargetPos[posBMeshIndex];
-        vertexDirections[posAMeshIndex] = edgeDirectionVectors[posAMeshIndex];
-        vertexDirections[posBMeshIndex] = edgeDirectionVectors[posBMeshIndex];
-        edgeVertices.insert(posAMeshIndex);
-        edgeVertices.insert(posBMeshIndex);
-    }
-
-    MItMeshVertex neighborIter(meshObj);
-
-    for (int pass = 0; pass < propagationPasses; pass++)
-    {
-        std::unordered_map<int, double>  newWeights = vertexWeights;
-        std::unordered_map<int, MVector> newTargets = vertexTargets;
-        std::unordered_map<int, MVector> newDirections = vertexDirections;
-
-
-        for (const auto& [idx, weight] : vertexWeights)
+        // We need to create the initial map with the actively deformed points
+        for (int x = 0; x < m_largerCount; x++)
         {
-            if (weight <= 0.01)
-                continue;
+            int posAMeshIndex = m_larger->second[x];
+            int posBMeshIndex = m_smaller->second[m_resampleOriginalIndex[x]];
 
-            int prevIdx = 0;
-            neighborIter.setIndex(idx, prevIdx);
-            MIntArray neighborList;
-            neighborIter.getConnectedVertices(neighborList);
+            // The main vertices have 100% of the weight...
+            m_vertexCache[posAMeshIndex] = { 1.0, posAMeshIndex };
+            m_vertexCache[posBMeshIndex] = { 1.0, posBMeshIndex };
+            m_edgeVertices.insert(posAMeshIndex);
+            m_edgeVertices.insert(posBMeshIndex);
+        }
 
-            for (int i = 0; i < static_cast<int>(neighborList.length()); i++)
+        // Now we propagate the weights...
+        MItMeshVertex neighborIter(meshObj);
+
+        for (int pass = 0; pass < propagationPasses; pass++)
+        {
+            std::unordered_map<int, VertexCache> newCache = m_vertexCache;
+
+            double t             = (propagationPasses > 1) ? static_cast<double>(pass) / (propagationPasses - 1) : 0.0;
+            double cosine        = (std::cos(t * M_PI) + 1.0) / 2.0;
+            double passFactor    = cosine;
+
+            for (const auto& [idx, cache] : m_vertexCache)
             {
-                int neighborIdx = neighborList[i];
-
-                // never overwrite edge vertices!!
-                if (edgeVertices.contains(neighborIdx))
+                if (cache.normalizedWeight <= 0.01)
                     continue;
 
+                int prevIdx = 0;
+                neighborIter.setIndex(idx, prevIdx);
+                MIntArray neighborList;
+                neighborIter.getConnectedVertices(neighborList);
 
-                double infl = propagateInfluence;
-                // double tension = propagateTension ;
+                double propagatedWeight = cache.normalizedWeight * passFactor;
 
-                if (pass < propagateHold)
+                for (unsigned int i = 0; i < neighborList.length(); i++)
                 {
-                    infl = propagateHoldInfluence; // hold loops completely hold the loop;
-                    // tension = propagateHoldTension;
-                }
+                    int neighborIdx = neighborList[i];
+                    if (m_edgeVertices.contains(neighborIdx)) continue;
 
-                // double propagatedWeight = weight * propagationFalloff;
-                // Adjust the power for different curves (2.0 = quadratic, 3.0 = cubic, etc.)
-                double t = static_cast<double>(pass) / (propagationPasses - 1);
-
-                // Cosine-based smooth falloff (smooth at both ends)
-                double cosineSmooth = (std::cos(t * M_PI) + 1.0) / 2.0;
-
-                // Scale by propagateSmoothness: 0 = no influence, higher = more influence
-                // double passFactor = cosineSmooth * propagateInfluence;
-                double passFactor = cosineSmooth * infl;
-                double propagatedWeight = weight * passFactor;
-
-
-                auto it = newWeights.find(neighborIdx);
-                if (it == newWeights.end() || propagatedWeight > it->second)
-                {
-                    // newWeights[neighborIdx] = propagatedWeight;
-                    // newTargets[neighborIdx] = vertexTargets[idx];
-
-                    newWeights[neighborIdx] = propagatedWeight;
-
-                    // widthBlend = 0: use direction (same displacement)
-                    // widthBlend = 1: use target (end position)
-                    MVector direction = vertexDirections[idx];  // Same displacement for all
-                    MVector target = vertexTargets[idx];        // Specific end position
-
-                    // Get neighbor's current position
-                    MPoint neighborPos;
-                    neighborIter.setIndex(neighborIdx, prevIdx);
-                    neighborPos = neighborIter.position();
-
-                    // Compute position using displacement
-                    MVector displacedPos = MVector(neighborPos) + direction;
-
-                    // Blend: widthBlend = 0 (displacement), widthBlend = 1 (target)
-                    // newTargets[neighborIdx] = displacedPos + propagateTension * (target - displacedPos);
-                    // newTargets[neighborIdx] = displacedPos + tension * (target - displacedPos); // tension maybe not good?
-                    newTargets[neighborIdx] = displacedPos + 0.0 * (target - displacedPos);
-                    newDirections[neighborIdx] = direction;  // Direction always propagates as-is
+                    auto it = newCache.find(neighborIdx);
+                    if (it == newCache.end() || propagatedWeight > it->second.normalizedWeight)
+                    {
+                        // inherit source from whoever is propagating to this neighbor
+                        newCache[neighborIdx] = { propagatedWeight, cache.sourceIdx, pass };
+                    }
                 }
             }
+
+            m_vertexCache = std::move(newCache);
         }
 
-        vertexWeights = std::move(newWeights);
-        vertexTargets = std::move(newTargets);
-        vertexDirections = std::move(newDirections);
+        // Turn off computes for both cache blocks until somethings dirties it
+        m_computeCaches = false;
+        DEBUG_PRINT("Cache clean, set compute to false...");
+
     }
 
-    // Apply
-    MItMeshVertex vIt(meshObj);
-    for (const auto& [idx, weight] : vertexWeights)
+    // Apply the computed blend positions to the actively deformed points,
+    // these actual points will then be used to propagate the deformations!
+    std::unordered_map<int, MVector> edgeOriginalPos;
+    std::unordered_map<int, MVector> edgeTargetPos;
+
+    for (int x = 0; x < m_largerCount; x++)
     {
-        if (edgeVertices.count(idx)) continue;
+        MVector& posA = m_larger->first[x];
+        int posAMeshIndex = m_larger->second[x];
 
-        int prevIdx = 0;
-        vIt.setIndex(idx, prevIdx);
-        MVector originalPos(vIt.position(MSpace::kWorld));
+        int smallerIdx = m_resampleOriginalIndex[x];
+        MVector& posB = m_smaller->first[smallerIdx];
+        int posBMeshIndex = m_smaller->second[smallerIdx];
 
-        MVector target = vertexTargets.contains(idx) ? vertexTargets[idx] : originalPos;
-        deformedPositions[idx] = originalPos + weight * (target - originalPos);
+        double blendVal = blendVals[x];
+        MVector posM = (posA + posB) * 0.5;
+
+        edgeOriginalPos[posAMeshIndex] = posA;
+        edgeOriginalPos[posBMeshIndex] = posB;
+        edgeTargetPos[posAMeshIndex] = posA + blendVal * (posM - posA);
+        edgeTargetPos[posBMeshIndex] = posB + blendVal * (posM - posB);
     }
 
-    // ------------------------------------------
-    // iterate through each point in the geometry slice provided
-    //
+    // Now we can deform the mesh in one single pass
     int count = 0;
-    for ( ; !iter.isDone(); iter.next())
-    {
-        auto meshVtxIndex = iter.index();
 
-        // Get in the if and the data with one O(1) query
-        if (auto posIter = deformedPositions.find(meshVtxIndex); posIter != deformedPositions.end())
-        {
-            MPoint pt = iter.position();
-            const auto& newP = posIter->second;
-            iter.setPosition(pt + (newP - pt) * envelope);
-            count++;
-        }
+    // for (; !iter.isDone(); iter.next())
+    // {
+    //     const int idx = iter.index();
+    //
+    //     auto targetIt = edgeTargetPos.find(idx);
+    //     if (targetIt == edgeTargetPos.end()) continue;
+    //
+    //     MPoint pos = iter.position(MSpace::kObject);
+    //     MPoint target(targetIt->second);
+    //
+    //     iter.setPosition(target, MSpace::kObject);
+    // }
+
+    for (; !iter.isDone(); iter.next())
+    {
+        const int idx = iter.index();
+
+        auto cacheIt = m_vertexCache.find(idx);
+        if (cacheIt == m_vertexCache.end()) continue;
+
+        const VertexCache& cache = cacheIt->second;
+
+        auto targetIt   = edgeTargetPos.find(cache.sourceIdx);
+        auto originalIt = edgeOriginalPos.find(cache.sourceIdx);
+        if (targetIt == edgeTargetPos.end() || originalIt == edgeOriginalPos.end())
+            continue;
+
+        MPoint pos = iter.position(MSpace::kObject);
+
+        // edge vertices (sentinel -1): always full weight, bypass influence scaling
+        // propagated vertices: scale normalizedWeight by hold or regular influence
+        //                      depending on which pass first reached them
+        double infl = cache.reachedAtPass == -1 ? 1.0 : (cache.reachedAtPass < propagateHold ? propagateHoldInfluence : propagateInfluence);
+
+        // inherit the source edge vertex's displacement this frame, scaled by weight
+        MVector sourceDisplacement = targetIt->second - originalIt->second;
+        MPoint  deformed = pos + (cache.normalizedWeight * infl) * sourceDisplacement;
+
+        iter.setPosition(pos + (deformed - pos) * envelope, MSpace::kObject);
+        count++;
     }
+
     DEBUG_PRINT(MString("Moved ") + count + " points");
 
     return MS::kSuccess;
