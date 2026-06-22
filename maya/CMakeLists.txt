@@ -28,6 +28,15 @@ add_library(${MODULE_NAME} SHARED ${SOURCES})
 set_target_properties(${MODULE_NAME} PROPERTIES SUFFIX ".mll" LINKER_LANGUAGE CXX)
 set_property(TARGET ${MODULE_NAME} PROPERTY CXX_STANDARD 23)
 
+
+# Define the path to the version file
+set(VERSION_FILE "version.txt")
+file(READ "${VERSION_FILE}" VERSION_CONTENTS)
+message(STATUS "VERSION_FILE: ${VERSION_FILE}")
+string(STRIP "${VERSION_CONTENTS}" PLUGIN_VERSION)
+message(STATUS "Plugin version is: ${PLUGIN_VERSION}")
+message(STATUS "Build type is: ${CMAKE_BUILD_TYPE}")
+
 # Add the paths where the includes are
 target_include_directories(${MODULE_NAME}
         PRIVATE
