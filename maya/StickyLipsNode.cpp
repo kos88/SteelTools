@@ -389,8 +389,15 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     double startAngleInfluence = 1.0;
     double endAngleInfluence = 1.0;
 
-    // if (m_computeCaches)
-    if (true) // we need to remove the point storage completely... we can't cache positions.. dhoiiyy
+    // maybe not a great idea since we access often in a loop... probably better to rebake it on reordered data?
+    auto ptAsVec = [&](const int index) -> MVector
+    {
+        MPoint pt;
+        fnMesh.getPoint(index, pt, MSpace::kObject);
+        return pt; // implicit conversion..
+    };
+
+    if (m_computeCaches)
     {
 
         m_upperPoints = SteelMeshUtils::createOrderedVertices(upperEdgeObj, meshObj);
@@ -408,16 +415,11 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         // *---------*--------*----------* Original B, less points
 
 
-        // A-B data
-        std::vector<MVector>* orderedPositionsUpEdge = &m_upperPoints.first;
-        std::vector<MVector>* orderedPositionsBottomEdge = &m_lowerPoints.first;
-
-
         // Create pointers and numbers for larger and smaller
-        m_larger  = orderedPositionsUpEdge->size() >= orderedPositionsBottomEdge->size() ? &m_upperPoints  : &m_lowerPoints;
-        m_smaller = orderedPositionsUpEdge->size() <  orderedPositionsBottomEdge->size() ? &m_upperPoints  : &m_lowerPoints;
-        m_largerCount  = static_cast<int>(m_larger->first.size());
-        const int smallerCount = static_cast<int>(m_smaller->first.size());
+        m_larger  = m_upperPoints.size() >= m_lowerPoints.size() ? &m_upperPoints  : &m_lowerPoints;
+        m_smaller = m_upperPoints.size() <  m_lowerPoints.size() ? &m_upperPoints  : &m_lowerPoints;
+        m_largerCount  = static_cast<int>(m_larger->size());
+        const int smallerCount = static_cast<int>(m_smaller->size());
 
         m_resampleOriginalIndex.resize(m_largerCount);
         m_originalToResampleIndex.resize(smallerCount, -1);
@@ -432,7 +434,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             m_resampleOriginalIndex[largerIdx]     = smallerIdx;
             m_originalToResampleIndex[smallerIdx]  = largerIdx;
 
-            MVector resampledSmaller = m_smaller->first[smallerIdx] + (m_smaller->first[smallerIdx + 1] - m_smaller->first[smallerIdx]) * remainder;
+            auto& smaller_ids = *m_smaller;
+            MVector resampledSmaller = ptAsVec(smaller_ids[smallerIdx]) +
+                                       (ptAsVec(smaller_ids[smallerIdx + 1]) - ptAsVec(smaller_ids[smallerIdx])) *
+                                       remainder;
         }
 
 
@@ -441,7 +446,8 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
         for (int x = 1; x < m_largerCount; x++)
         {
-            MVector delta = m_larger->first[x] - m_larger->first[x - 1];
+            auto& larger_ids = *m_larger;
+            MVector delta = ptAsVec(larger_ids[x]) - ptAsVec(larger_ids[x - 1]);
             m_arcLength[x] = m_arcLength[x - 1] + delta.length();
         }
         // DebugUtils::createDebugCurve("upper", m_upperPoints.first, true);
@@ -524,14 +530,17 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             }
         }
 
+        auto& larger_ids = *m_larger;
+        auto& smaller_ids = *m_smaller;
+
         // Compute slopes using startCornerIdx and endCornerIdx
-        MVector startDirA = (m_larger->first[leftCornerAngleIndex] - m_larger->first[0]).normal();
-        MVector startDirB = (m_smaller->first[m_resampleOriginalIndex[leftCornerAngleIndex]] - m_smaller->first[m_resampleOriginalIndex[0]]).normal();
+        MVector startDirA = (ptAsVec(larger_ids[leftCornerAngleIndex]) - ptAsVec(larger_ids[0])).normal();
+        MVector startDirB = (ptAsVec(smaller_ids[m_resampleOriginalIndex[leftCornerAngleIndex]]) - ptAsVec(smaller_ids[m_resampleOriginalIndex[0]])).normal();
         double startSlopeDot = std::clamp(startDirA * startDirB, -1.0, 1.0);
         double startSlopeAngle = std::acos(startSlopeDot) * 90.0 / M_PI; // yes half angle!
 
-        MVector endDirA = (m_larger->first[m_largerCount-1] - m_larger->first[rightCornerAngleIndex]).normal();
-        MVector endDirB = (m_smaller->first[m_resampleOriginalIndex[m_largerCount-1]] - m_smaller->first[m_resampleOriginalIndex[rightCornerAngleIndex]]).normal();
+        MVector endDirA = (ptAsVec(larger_ids[m_largerCount-1]) - ptAsVec(larger_ids[rightCornerAngleIndex])).normal();
+        MVector endDirB = (ptAsVec(smaller_ids[m_resampleOriginalIndex[m_largerCount-1]]) - ptAsVec(smaller_ids[m_resampleOriginalIndex[rightCornerAngleIndex]])).normal();
         double endSlopeDot = std::clamp(endDirA * endDirB, -1.0, 1.0);
         double endSlopeAngle = std::acos(endSlopeDot) * 90.0 / M_PI; // yes half angle!
 
@@ -561,10 +570,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // Now for each point A-Mid-B decide the position
     for (int x = 0; x < m_largerCount; x++)
     {
-        const MVector& posA = m_larger->first[x];
+        const MVector& posA = ptAsVec((*m_larger)[x]);
 
         const int smallerIdx = m_resampleOriginalIndex[x];
-        const MVector& posB  = m_smaller->first[smallerIdx];
+        const MVector& posB  = ptAsVec((*m_smaller)[smallerIdx]);
 
         double cornerRelaxValue = 0;
 
@@ -644,8 +653,8 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         // We need to create the initial map with the actively deformed points
         for (int x = 0; x < m_largerCount; x++)
         {
-            int posAMeshIndex = m_larger->second[x];
-            int posBMeshIndex = m_smaller->second[m_resampleOriginalIndex[x]];
+            int posAMeshIndex = (*m_larger)[x];
+            int posBMeshIndex = (*m_smaller)[m_resampleOriginalIndex[x]];
 
             // The main vertices have 100% of the weight...
             m_vertexCache[posAMeshIndex] = { 1.0, posAMeshIndex };
@@ -707,12 +716,14 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     for (int x = 0; x < m_largerCount; x++)
     {
-        MVector& posA = m_larger->first[x];
-        int posAMeshIndex = m_larger->second[x];
+        auto& large_idx = *m_larger;
+        const MVector posA = ptAsVec(large_idx[x]);
+        int posAMeshIndex = large_idx[x];
 
+        const auto& small_idx = *m_smaller;
         int smallerIdx = m_resampleOriginalIndex[x];
-        MVector& posB = m_smaller->first[smallerIdx];
-        int posBMeshIndex = m_smaller->second[smallerIdx];
+        const MVector posB = ptAsVec(small_idx[smallerIdx]);
+        int posBMeshIndex = small_idx[smallerIdx];
 
         double blendVal = blendVals[x];
         MVector posM = (posA + posB) * 0.5;

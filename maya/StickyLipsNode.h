@@ -39,12 +39,12 @@ class StickyLipsNode : public MPxDeformerNode
     bool m_computeCaches = true;
 
     // We use std containers as we might want to abstract the compute part to run also in other DCC..less refactor later?
-    std::pair<std::vector<MVector>, std::vector<int>> m_upperPoints;
-    std::pair<std::vector<MVector>, std::vector<int>> m_lowerPoints;
+    std::vector<int> m_upperPoints;
+    std::vector<int> m_lowerPoints;
 
     // Pointers assigned depending on what has more vertices
-    std::pair<std::vector<MVector>, std::vector<int>>* m_larger;
-    std::pair<std::vector<MVector>, std::vector<int>>* m_smaller;
+    std::vector<int>* m_larger;
+    std::vector<int>* m_smaller;
     int m_largerCount = -1;
 
     // Lookups for getting the original index going from small to big or big to small
