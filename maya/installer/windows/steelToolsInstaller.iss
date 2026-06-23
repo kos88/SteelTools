@@ -10,6 +10,7 @@ AppVersion={#MyVersion}
 LicenseFile=../../../LICENSE.txt
 ArchitecturesInstallIn64BitMode=x64
 DefaultDirName={userdesktop}\steelTools
+OutputDir=../../../../releases
 OutputBaseFilename=steelTools_{#MyVersion}
 
 //DefaultDirName={autopf}\SteelToolsMaya
