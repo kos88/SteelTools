@@ -450,9 +450,30 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             MVector delta = ptAsVec(larger_ids[x]) - ptAsVec(larger_ids[x - 1]);
             m_arcLength[x] = m_arcLength[x - 1] + delta.length();
         }
-        // DebugUtils::createDebugCurve("upper", m_upperPoints.first, true);
-        // DebugUtils::createDebugCurve("lower", m_lowerPoints.first, true);
+
     }
+
+    std::vector<MVector> largerPoints;
+    std::vector<MVector> smallerPoints;
+    largerPoints.reserve(m_larger->size());
+    smallerPoints.reserve(m_smaller->size());
+
+    for (const int index: *m_larger)
+    {
+        MPoint pt;
+        fnMesh.getPoint(index, pt, MSpace::kObject);
+        largerPoints.emplace_back(pt); // convert to MVector in place
+    }
+
+    for (const int index: *m_smaller)
+    {
+        MPoint pt;
+        fnMesh.getPoint(index, pt, MSpace::kObject);
+        smallerPoints.emplace_back(pt); // convert to MVector in place
+    }
+
+    // DebugUtils::createDebugCurve("upper", largerPoints, true);
+    // DebugUtils::createDebugCurve("lower", smallerPoints, true);
 
     // ---------------------------------------- Values extraction --------------------------------------------------- //
     const int propagationPasses = block.inputValue(s_propagateIterations).asInt();
@@ -530,17 +551,14 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             }
         }
 
-        auto& larger_ids = *m_larger;
-        auto& smaller_ids = *m_smaller;
-
         // Compute slopes using startCornerIdx and endCornerIdx
-        MVector startDirA = (ptAsVec(larger_ids[leftCornerAngleIndex]) - ptAsVec(larger_ids[0])).normal();
-        MVector startDirB = (ptAsVec(smaller_ids[m_resampleOriginalIndex[leftCornerAngleIndex]]) - ptAsVec(smaller_ids[m_resampleOriginalIndex[0]])).normal();
+        MVector startDirA = (largerPoints[leftCornerAngleIndex] - largerPoints[0]).normal();
+        MVector startDirB = (smallerPoints[m_resampleOriginalIndex[leftCornerAngleIndex]] - smallerPoints[m_resampleOriginalIndex[0]]).normal();
         double startSlopeDot = std::clamp(startDirA * startDirB, -1.0, 1.0);
         double startSlopeAngle = std::acos(startSlopeDot) * 90.0 / M_PI; // yes half angle!
 
-        MVector endDirA = (ptAsVec(larger_ids[m_largerCount-1]) - ptAsVec(larger_ids[rightCornerAngleIndex])).normal();
-        MVector endDirB = (ptAsVec(smaller_ids[m_resampleOriginalIndex[m_largerCount-1]]) - ptAsVec(smaller_ids[m_resampleOriginalIndex[rightCornerAngleIndex]])).normal();
+        MVector endDirA = (largerPoints[m_largerCount-1] - largerPoints[rightCornerAngleIndex]).normal();
+        MVector endDirB = (smallerPoints[m_resampleOriginalIndex[m_largerCount-1]] - smallerPoints[m_resampleOriginalIndex[rightCornerAngleIndex]]).normal();
         double endSlopeDot = std::clamp(endDirA * endDirB, -1.0, 1.0);
         double endSlopeAngle = std::acos(endSlopeDot) * 90.0 / M_PI; // yes half angle!
 
@@ -570,10 +588,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // Now for each point A-Mid-B decide the position
     for (int x = 0; x < m_largerCount; x++)
     {
-        const MVector& posA = ptAsVec((*m_larger)[x]);
+        const MVector& posA = largerPoints[x];
 
         const int smallerIdx = m_resampleOriginalIndex[x];
-        const MVector& posB  = ptAsVec((*m_smaller)[smallerIdx]);
+        const MVector& posB  = smallerPoints[smallerIdx];
 
         double cornerRelaxValue = 0;
 
@@ -711,27 +729,37 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
     // Apply the computed blend positions to the actively deformed points,
     // these actual points will then be used to propagate the deformations!
+    // bool collision_only = true;
+    // MVector forward{0, 0, 1}; // for collision mode.. need to guess it
+
     std::unordered_map<int, MVector> edgeOriginalPos;
     std::unordered_map<int, MVector> edgeTargetPos;
 
     for (int x = 0; x < m_largerCount; x++)
     {
-        auto& large_idx = *m_larger;
-        const MVector posA = ptAsVec(large_idx[x]);
-        int posAMeshIndex = large_idx[x];
+        const MVector& posA = largerPoints[x];
+        int posAMeshIndex = (*m_larger)[x];
 
-        const auto& small_idx = *m_smaller;
         int smallerIdx = m_resampleOriginalIndex[x];
-        const MVector posB = ptAsVec(small_idx[smallerIdx]);
-        int posBMeshIndex = small_idx[smallerIdx];
+        const MVector& posB = smallerPoints[smallerIdx];
+        int posBMeshIndex = (*m_smaller)[smallerIdx];
+
 
         double blendVal = blendVals[x];
         MVector posM = (posA + posB) * 0.5;
+
+        // Delta from A toward B
+        MVector delta = posB - posA;
+
 
         edgeOriginalPos[posAMeshIndex] = posA;
         edgeOriginalPos[posBMeshIndex] = posB;
         edgeTargetPos[posAMeshIndex] = posA + blendVal * (posM - posA);
         edgeTargetPos[posBMeshIndex] = posB + blendVal * (posM - posB);
+
+
+
+
     }
 
     // Now we can deform the mesh in one single pass
