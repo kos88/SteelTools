@@ -18,13 +18,21 @@ def steel_menu():
 
     cmds.menuItem(parent=menu_bar, divider=True, dividerLabel='Deformers')
     cmds.menuItem(parent=menu_bar, label='Create Sticky Lips', c=create_sticky_lips)
+    cmds.menuItem(parent=menu_bar, label='Create Sticky Lips', optionBox=True, c=create_sticky_lips_window)
     cmds.menuItem(parent=menu_bar, label='Create Cornea Push', c=create_cornea_push)
+    cmds.menuItem(parent=menu_bar, label='Create Cornea Push', optionBox=True, c=create_cornea_push_window)
 
 def remove_menu():
     cmds.deleteUI(MENU_NAME)
 
 def create_sticky_lips(*args):
-    sl.StickyLipsWindow()
+    sl.StickyLipsCreator().create_deformer()
+
+def create_sticky_lips_window(*args):
+    sl.StickyLipsCreator().show_ui()
 
 def create_cornea_push(*args):
+    ...
+
+def create_cornea_push_window(*args):
     ...

@@ -9,6 +9,7 @@ import maya.api.OpenMayaRender as omr
 
 from steelTools import mesh_utils
 from steelTools import commands as steel_cmd
+from steelTools.interface.settingsHelper import SettingsHelper
 
 logger = log.getLogger(__name__)
 logger.setLevel(log.DEBUG)
@@ -299,14 +300,132 @@ class StickyMeshHelper:
         highlight_list.add((dag_path, face_obj))
         self._highlightMeshComponents(highlight_list)
 
+class StickyLipsValues:
 
-class StickyLipsWindow:
+    def __init__(self):
+        self.settings_helper = SettingsHelper("StickyLips")
+
+    @property
+    def area_tag_name(self) -> str:
+        return self.settings_helper.get_value("area_tag_name", "stickyLipsGeo")
+
+    @area_tag_name.setter
+    def area_tag_name(self, value: str):
+        self.settings_helper.set_value("area_tag_name", value)
+
+    @property
+    def upper_tag_name(self) -> str:
+        return self.settings_helper.get_value("upper_tag_name", "stickyLipsUpperEdge")
+
+    @upper_tag_name.setter
+    def upper_tag_name(self, value: str):
+        self.settings_helper.set_value("upper_tag_name", value)
+
+    @property
+    def lower_tag_name(self) -> str:
+        return self.settings_helper.get_value("lower_tag_name", "stickyLipsLowerEdge")
+
+    @lower_tag_name.setter
+    def lower_tag_name(self, value: str):
+        self.settings_helper.set_value("lower_tag_name", value)
+
+    @property
+    def propagate_amount(self) -> int:
+        return self.settings_helper.get_value("propagate_amount", 5)
+
+    @propagate_amount.setter
+    def propagate_amount(self, value: int):
+        self.settings_helper.set_value("propagate_amount", value)
+
+    @property
+    def propagate_influence(self) -> float:
+        return self.settings_helper.get_value("propagate_influence", 0.9)
+
+    @propagate_influence.setter
+    def propagate_influence(self, value: float):
+        self.settings_helper.set_value("propagate_influence", value)
+
+    @property
+    def propagate_hold(self) -> int:
+        return self.settings_helper.get_value("propagate_hold", 1)
+
+    @propagate_hold.setter
+    def propagate_hold(self, value: int):
+        self.settings_helper.set_value("propagate_hold", value)
+
+    @property
+    def propagate_hold_influence(self) -> float:
+        return self.settings_helper.get_value("propagate_hold_influence", 0.5)
+
+    @propagate_hold_influence.setter
+    def propagate_hold_influence(self, value: float):
+        self.settings_helper.set_value("propagate_hold_influence", value)
+
+    @property
+    def max_threshold(self) -> float:
+        return self.settings_helper.get_value("max_threshold", 1.0)
+
+    @max_threshold.setter
+    def max_threshold(self, value: float):
+        self.settings_helper.set_value("max_threshold", value)
+
+    @property
+    def min_threshold(self) -> float:
+        return self.settings_helper.get_value("min_threshold", 0.5)
+
+    @min_threshold.setter
+    def min_threshold(self, value: float):
+        self.settings_helper.set_value("min_threshold", value)
+
+    @property
+    def edge_smooth(self) -> int:
+        return self.settings_helper.get_value("edge_smooth", 1)
+
+    @edge_smooth.setter
+    def edge_smooth(self, value: int):
+        self.settings_helper.set_value("edge_smooth", value)
+
+    @property
+    def edge_sharpness(self) -> float:
+        return self.settings_helper.get_value("edge_sharpness", 1.0)
+
+    @edge_sharpness.setter
+    def edge_sharpness(self, value: float):
+        self.settings_helper.set_value("edge_sharpness", value)
+
+    @property
+    def corner_auto_relax(self) -> float:
+        return self.settings_helper.get_value("corner_auto_relax", 1.0)
+
+    @corner_auto_relax.setter
+    def corner_auto_relax(self, value: float):
+        self.settings_helper.set_value("corner_auto_relax", value)
+
+    @property
+    def corner_auto_relax_start_angle(self) -> float:
+        return self.settings_helper.get_value("corner_auto_relax_start_angle", 20.0)
+
+    @corner_auto_relax_start_angle.setter
+    def corner_auto_relax_start_angle(self, value: float):
+        self.settings_helper.set_value("corner_auto_relax_start_angle", value)
+
+    @property
+    def corner_auto_relax_end_angle(self) -> float:
+        return self.settings_helper.get_value("corner_auto_relax_end_angle", 45.0)
+
+    @corner_auto_relax_end_angle.setter
+    def corner_auto_relax_end_angle(self, value: float):
+        self.settings_helper.set_value("corner_auto_relax_end_angle", value)
+
+
+class StickyLipsCreator:
 
     WINDOW_NAME = "SteelStickyLipsWindow"
     WINDOW_TITLE = "Steel Sticky Lips"
 
     def __init__(self):
         self.mesh_helper = StickyMeshHelper()
+        self.values_helper = StickyLipsValues()
 
         # Widgets
         self.setup_text_hint = None
@@ -327,7 +446,13 @@ class StickyLipsWindow:
         self.auto_relax_start_slider = None
         self.auto_relax_end_slider = None
 
-        self._build_ui()
+        self.hold_amount_slider = None
+        self.influence_amount_slider = None
+        self.hold_influence_amount_slider = None
+
+    @property
+    def has_window(self) -> bool:
+        return cmds.window(self.WINDOW_NAME, exists=True)
 
     def __del__(self):
         self.mesh_helper.stop()
@@ -357,7 +482,6 @@ class StickyLipsWindow:
         cmds.showWindow(window)
         self.mesh_helper.start(self._on_selection_changed)
 
-
     def _on_selection_changed(self):
         if not self.mesh_helper.mesh_shape_name:
             cmds.text(self.setup_text_hint, edit=True, label="Select the lips edge loop to apply the deformer to")
@@ -366,6 +490,21 @@ class StickyLipsWindow:
         else:
             cmds.text(self.setup_text_hint, edit=True, label="Select an edge loop to apply the deformer to")
 
+    def _save_settings(self):
+        self.values_helper.max_threshold = cmds.floatSliderGrp(self.sticky_max_slider, query=True, value=True)
+        self.values_helper.min_threshold = cmds.floatSliderGrp(self.sticky_min_slider, query=True, value=True)
+        self.values_helper.edge_smooth = cmds.floatSliderGrp(self.sticky_smooth_slider, query=True, value=True)
+        self.values_helper.edge_sharpness = cmds.floatSliderGrp(self.sticky_sharp_slider, query=True, value=True)
+
+        corner_relax_active = cmds.checkBoxGrp(self.use_corner_relax_check_box, query=True, value1=True)
+        self.values_helper.corner_auto_relax = cmds.floatSliderGrp(self.corner_auto_relax_slider, query=True, value=True) if corner_relax_active else 0.0
+        self.values_helper.corner_auto_relax_start_angle = cmds.floatSliderGrp(self.auto_relax_start_slider, query=True, value=True)
+        self.values_helper.corner_auto_relax_end_angle = cmds.floatSliderGrp(self.auto_relax_end_slider, query=True, value=True)
+
+        self.values_helper.propagate_amount = cmds.intSliderGrp(self.grow_amount_slider, query=True, value=True)
+        self.values_helper.propagate_hold = cmds.intSliderGrp(self.hold_amount_slider, query=True, value=True)
+        self.values_helper.propagate_influence = cmds.floatSliderGrp(self.influence_amount_slider, query=True, value=True)
+        self.values_helper.propagate_hold_influence = cmds.floatSliderGrp(self.influence_amount_slider, query=True, value=True)
 
     def _build_selection_area(self):
         cmds.text(label="Setup Area", font="boldLabelFont", align="left")
@@ -379,7 +518,7 @@ class StickyLipsWindow:
             field=True,
             minValue=0,
             maxValue=50,
-            value=5,
+            value=self.values_helper.propagate_amount,
             step=1,
             columnWidth=[(1, 140), (2, 60), (3, 180)],
             changeCommand=self._on_grow_amount_change,
@@ -401,9 +540,9 @@ class StickyLipsWindow:
         cmds.separator(height=20, style="in")
         cmds.text(label="Component Tag Names", font="boldLabelFont", align="left")
         cmds.separator(height=10, style="none")
-        self.lip_area_comp_text_field = cmds.textFieldGrp(label="Lip Area", text="stickyLipsGeo")
-        self.up_edge_comp_text_field = cmds.textFieldGrp(label="Upper Edge", text="stickyLipsUpperEdge")
-        self.low_edge_comp_text_field = cmds.textFieldGrp(label="Lower Edge", text="stickyLipsLowerEdge")
+        self.lip_area_comp_text_field = cmds.textFieldGrp(label="Lip Area", text=self.values_helper.area_tag_name)
+        self.up_edge_comp_text_field = cmds.textFieldGrp(label="Upper Edge", text=self.values_helper.upper_tag_name)
+        self.low_edge_comp_text_field = cmds.textFieldGrp(label="Lower Edge", text=self.values_helper.lower_tag_name)
 
         cmds.setParent("..")
         cmds.separator(height=20, style="in")
@@ -426,7 +565,7 @@ class StickyLipsWindow:
             minValue=0.0,
             fieldMinValue=0.0,
             fieldMaxValue=5.0,
-            value=1.0,
+            value=self.values_helper.max_threshold,
             step=0.1,
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
@@ -436,7 +575,7 @@ class StickyLipsWindow:
             field=True,
             minValue=0.0,
             fieldMinValue=0.0,
-            fieldMaxValue=5.0,
+            fieldMaxValue=self.values_helper.min_threshold,
             value=0.5,
             step=0.1,
             columnWidth=[(1, 140), (2, 60), (3, 180)]
@@ -445,7 +584,18 @@ class StickyLipsWindow:
         self.sticky_smooth_slider = cmds.floatSliderGrp(
             label="Sticky Edge Smoothness: ",
             field=True,
-            minValue=0.0,
+            minValue=self.values_helper.edge_smooth,
+            fieldMinValue=0.0,
+            fieldMaxValue=50.0,
+            value=5.0,
+            step=0.1,
+            columnWidth=[(1, 140), (2, 60), (3, 180)]
+        )
+
+        self.sticky_sharp_slider = cmds.floatSliderGrp(
+            label="Sticky Edge Sharpness: ",
+            field=True,
+            minValue=self.values_helper.edge_sharpness,
             fieldMinValue=0.0,
             fieldMaxValue=50.0,
             value=5.0,
@@ -472,8 +622,8 @@ class StickyLipsWindow:
             label="Corner Auto Relax: ",
             field=True,
             minValue=0,
-            maxValue=1,
-            value=1.0,
+            maxValue=1.0,
+            value=self.values_helper.corner_auto_relax,
             step=0.1,
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
@@ -483,7 +633,7 @@ class StickyLipsWindow:
             field=True,
             minValue=0.0,
             maxValue=90.0,
-            value=20.0,
+            value=self.values_helper.corner_auto_relax_start_angle,
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
@@ -492,7 +642,36 @@ class StickyLipsWindow:
             field=True,
             minValue=0.0,
             maxValue=90.0,
-            value=45.0,
+            value=self.values_helper.corner_auto_relax_end_angle,
+            columnWidth=[(1, 140), (2, 60), (3, 180)]
+        )
+
+        cmds.separator(height=5, style="none")
+        self.influence_amount_slider = cmds.floatSliderGrp(
+            label="Propagate Influence: ",
+            field=True,
+            minValue=0,
+            maxValue=1.0,
+            value=self.values_helper.propagate_influence,
+            step=0.1,
+            columnWidth=[(1, 140), (2, 60), (3, 180)]
+        )
+
+        self.hold_amount_slider = cmds.intSliderGrp(
+            label="Hold Loops: ",
+            field=True,
+            minValue=0,
+            maxValue=10,
+            value=self.values_helper.propagate_hold,
+            columnWidth=[(1, 140), (2, 60), (3, 180)]
+        )
+
+        self.hold_influence_amount_slider = cmds.floatSliderGrp(
+            label="Hold Influence: ",
+            field=True,
+            minValue=0.0,
+            maxValue=1.0,
+            value=self.values_helper.propagate_hold_influence,
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
@@ -504,7 +683,7 @@ class StickyLipsWindow:
     def _build_buttons(self, main_form, scroll):
         # Buttons on top, outside scroll!
         cmds.setParent(main_form)
-        create_btn = cmds.button(label="Create", command=self._on_create)
+        create_btn = cmds.button(label="Create", command=self.create_deformer)
         close_btn = cmds.button(label="Close", command=self._on_close)
         cmds.formLayout(main_form, edit=True,
                         attachForm=[
@@ -538,17 +717,38 @@ class StickyLipsWindow:
     def _on_auto_detect_corners(self, *args):
         self.mesh_helper.find_corner_vertices()
 
-    def _on_create(self, *args):
+    def _on_close(self, *args):
+        self._save_settings()
+        self.mesh_helper.stop()
+        cmds.deleteUI(self.WINDOW_NAME)
 
+    # ------------------------------------------------------------------------
+    # Public methods
+    # ------------------------------------------------------------------------
+    def show_ui(self):
+        self._build_ui()
+
+    def create_deformer(self, *args):
         # Make sure we have data
+        if not self.mesh_helper.mesh_shape_name:
+            self.mesh_helper.start()
+
+        if not self.mesh_helper.mesh_shape_name:
+            cmds.error("Select a mesh edge loop to proceed")
+            return
+
         if not self.mesh_helper.current_faces:
             self.mesh_helper.store_full_area()
         if not self.mesh_helper.upper_edge or not self.mesh_helper.lower_edge:
             self.mesh_helper.find_corner_vertices()
 
-        lip_area_component_tag_name = cmds.textFieldGrp(self.lip_area_comp_text_field, q=True, text=True)
-        upper_edge_component_tag_name = cmds.textFieldGrp(self.up_edge_comp_text_field, q=True, text=True)
-        lower_edge_component_tag_name = cmds.textFieldGrp(self.low_edge_comp_text_field, q=True, text=True)
+        # Store settings from UI to persistent data, if we have shown a window or use last
+        if self.has_window:
+            self._save_settings()
+
+        lip_area_component_tag_name = self.values_helper.area_tag_name
+        upper_edge_component_tag_name = self.values_helper.upper_tag_name
+        lower_edge_component_tag_name = self.values_helper.lower_tag_name
         logger.debug(f"Affected vertices \n{self.mesh_helper.current_faces} face component tag {lip_area_component_tag_name}")
         logger.debug(f"Upper Edges: \n{self.mesh_helper.upper_edge} upper edge component tag {upper_edge_component_tag_name}")
         logger.debug(f"Lower Edges: \n{self.mesh_helper.lower_edge} lower edge component tag {lower_edge_component_tag_name}")
@@ -581,35 +781,26 @@ class StickyLipsWindow:
         lower_edges = [f"{dag_path.fullPathName()}.e[{e}]" for e in self.mesh_helper.lower_edge]
         cmds.componentTag(lower_edges, cr=True, ntn=lower_edge_component_tag_name)
 
-        # ----------------------------------- Pull deformer settings from UI ----------------------------------------- #
-        sticky_max_threshold = cmds.floatSliderGrp(self.sticky_max_slider, query=True, value=True)
-        sticky_min_threshold = cmds.floatSliderGrp(self.sticky_min_slider, query=True, value=True)
-        sticky_smooth_val = cmds.floatSliderGrp(self.sticky_smooth_slider, query=True, value=True)
-
-        corner_relax_active = cmds.checkBoxGrp(self.use_corner_relax_check_box, query=True, value1=True)
-        corner_relax_val = cmds.floatSliderGrp(self.corner_auto_relax_slider, query=True, value=True) if corner_relax_active else 0.0
-        corner_relax_start_val = cmds.floatSliderGrp(self.auto_relax_start_slider, query=True, value=True)
-        corner_relax_end_val = cmds.floatSliderGrp(self.auto_relax_end_slider, query=True, value=True)
-
-
-        grow_amount_value = cmds.intSliderGrp(self.grow_amount_slider, query=True, value=True)
-
         # Create the deformer
         steel_cmd.create_sticky_lips(mesh_shape_name,
-                                     area_component_tag=lip_area_component_tag_name,
-                                     upper_edge_component_tag=upper_edge_component_tag_name,
-                                     lower_edge_component_tag=lower_edge_component_tag_name,
+                                     area_component_tag=self.values_helper.area_tag_name,
+                                     upper_edge_component_tag=self.values_helper.upper_tag_name,
+                                     lower_edge_component_tag=self.values_helper.lower_tag_name,
 
-                                     max_threshold=sticky_max_threshold,
-                                     min_threshold=sticky_min_threshold,
-                                     edge_smooth=sticky_smooth_val,
+                                     max_threshold=self.values_helper.max_threshold,
+                                     min_threshold=self.values_helper.min_threshold,
+                                     edge_smooth=self.values_helper.edge_smooth,
+                                     edge_sharpness=self.values_helper.edge_sharpness,
 
-                                     corner_auto_relax=corner_relax_val,
-                                     auto_relax_start_angle=corner_relax_start_val,
-                                     auto_relax_end_angle=corner_relax_end_val,
+                                     corner_auto_relax=self.values_helper.corner_auto_relax,
+                                     auto_relax_start_angle=self.values_helper.corner_auto_relax_start_angle,
+                                     auto_relax_end_angle=self.values_helper.corner_auto_relax_end_angle,
 
-                                     propagate_iterations=grow_amount_value)
+                                     propagate_iterations=self.values_helper.propagate_amount,
+                                     propagate_influence=self.values_helper.propagate_influence,
+                                     propagate_hold=self.values_helper.propagate_hold,
+                                     propagate_hold_influence=self.values_helper.propagate_hold_influence,
+                                     )
 
-    def _on_close(self, *args):
-        self.mesh_helper.stop()
-        cmds.deleteUI(self.WINDOW_NAME)
+        if self.has_window:
+            self._on_close()

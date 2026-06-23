@@ -11,14 +11,16 @@ def create_sticky_lips(mesh_name: str,
                        max_threshold: float = 1.0,
                        min_threshold: float = 0.5,
                        edge_smooth: float = 5.0,
+                       edge_sharpness: float = 1.0,
 
                        corner_auto_relax: float = 1.0,
                        auto_relax_start_angle: float = 20.0,
                        auto_relax_end_angle: float = 45.0,
 
                        propagate_iterations=4,
-                       propagate_tension=0.5,
-                       propagate_influence=1.0
+                       propagate_influence=1.0,
+                       propagate_hold=1,
+                       propagate_hold_influence=1.0,
                        ):
     ...
     cmds.undoInfo(openChunk=True)
@@ -27,15 +29,18 @@ def create_sticky_lips(mesh_name: str,
         cmds.setAttr(f"{created_name}.sealDistance", sticky_seal)
         cmds.setAttr(f"{created_name}.maxThreshold", max_threshold)
         cmds.setAttr(f"{created_name}.minThreshold", min_threshold)
+
         cmds.setAttr(f"{created_name}.edgeSmooth", edge_smooth)
+        cmds.setAttr(f"{created_name}.sharpness", edge_sharpness)
 
         cmds.setAttr(f"{created_name}.cornerAutoRelax", corner_auto_relax)
         cmds.setAttr(f"{created_name}.autoRelaxStartAngle", auto_relax_start_angle)
         cmds.setAttr(f"{created_name}.autoRelaxEndAngle", auto_relax_end_angle)
 
-        cmds.setAttr(f"{created_name}.propagateInfluence", propagate_influence)
         cmds.setAttr(f"{created_name}.propagateIterations", propagate_iterations)
-        cmds.setAttr(f"{created_name}.propagateTension", propagate_tension)
+        cmds.setAttr(f"{created_name}.propagateInfluence", propagate_influence)
+        cmds.setAttr(f"{created_name}.holdLoops", propagate_hold)
+        cmds.setAttr(f"{created_name}.holdInfluence", propagate_hold_influence)
 
         cmds.setAttr(f"{created_name}.input[0].componentTagExpression", area_component_tag, type='string')
         cmds.setAttr(f"{created_name}.edgeLoopNameA", upper_edge_component_tag, type='string')

@@ -1,4 +1,5 @@
 // If my version is not defined, define it. it should be specified in the command line like: -DMyVersion=1.0.0
+// the components to install must match what is actually present in the release folder
 #ifndef MyVersion
   #define MyVersion "TEST"
 #endif
