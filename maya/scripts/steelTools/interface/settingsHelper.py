@@ -1,5 +1,11 @@
-from PySide6 import QtCore
-from PySide6.QtCore import QSettings
+
+try:
+    from PySide6 import QtCore
+    from PySide6.QtCore import QSettings
+except ImportError:
+    from PySide2 import QtCore
+    from PySide2.QtCore import QSettings
+
 from typing import Union
 
 class SettingsHelper:

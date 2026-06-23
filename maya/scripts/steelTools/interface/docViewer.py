@@ -1,9 +1,17 @@
 import sys
 from pathlib import Path
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QTextDocument
+
+try:
+    from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QTextDocument
+except ImportError:
+    from PySide2.QtWidgets import QApplication, QVBoxLayout, QWidget
+    from PySide2.QtWebEngineWidgets import QWebEngineView
+    from PySide2.QtCore import QUrl
+    from PySide2.QtGui import QTextDocument
+
 
 class MarkdownViewer(QWidget):
     def __init__(self, md_file):
