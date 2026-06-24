@@ -11,6 +11,7 @@
 
 #include "SteelMayaCommon.h"
 
+#include <maya/MGlobal.h>
 #include <maya/MObjectHandle.h>
 #include <maya/MFnStringData.h>
 #include <maya/MItMeshEdge.h>
@@ -179,14 +180,6 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_propagateIterations);
     attributeAffects(s_propagateIterations, outputGeom);
 
-    s_propagateHold = nAttr.create("holdLoops", "hlop", MFnNumericData::kInt, 1);
-    nAttr.setMin(0);
-    // nAttr.setMax(10);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_propagateHold);
-    attributeAffects(s_propagateHold, outputGeom);
-
     s_propagateInfluence = nAttr.create("propagateInfluence", "psm", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
     nAttr.setMax(1.0);
@@ -194,6 +187,15 @@ MStatus StickyLipsNode::initialize() {
     nAttr.setStorable(true);
     addAttribute(s_propagateInfluence);
     attributeAffects(s_propagateInfluence, outputGeom);
+
+
+    s_propagateHold = nAttr.create("holdLoops", "hlop", MFnNumericData::kInt, 1);
+    nAttr.setMin(0);
+    // nAttr.setMax(10);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_propagateHold);
+    attributeAffects(s_propagateHold, outputGeom);
 
     s_propagateHoldInfluence = nAttr.create("holdInfluence", "phli", MFnNumericData::kFloat, 0.9);
     nAttr.setMin(0.0);
@@ -210,7 +212,6 @@ MStatus StickyLipsNode::initialize() {
     // nAttr.setStorable(true);
     // addAttribute(s_propagateTension);
     // attributeAffects(s_propagateTension, outputGeom);
-
 
 
 
@@ -239,6 +240,75 @@ MStatus StickyLipsNode::initialize() {
     tAttr.setStorable(true);
     addAttribute(s_EdgeLoopB);
     attributeAffects(s_EdgeLoopB, outputGeom);
+
+    // AE templates are picked up from folders etc.. but, to keep things in a sane way we store it here
+    MGlobal::executeCommand(R"my_delimiter(
+global proc AEsteelStickyLipsTemplate( string $nodeName )
+{
+    editorTemplate -beginScrollLayout;
+
+    // Main Sticky Controls
+    editorTemplate -beginLayout "Sticky Controls" -collapse 0;
+        editorTemplate -annotation "Distance threshold where lips seal together. Animate this for sticky behavior"
+            -addControl "sealDistance";
+        editorTemplate -annotation "Maximum distance where sticky effect begins"
+            -addControl "maxThreshold";
+        editorTemplate -annotation "Minimum distance where sticky effect is fully applied"
+            -addControl "minThreshold";
+        editorTemplate -annotation "Smoothness passes of the sticky edge. Similar to a gaussian blur."
+            -addControl "edgeSmooth";
+        editorTemplate -annotation "Increase the decay influence between the sealed and unsealed areas"
+            -addControl "sharpness";
+    editorTemplate -endLayout;
+
+    // Corner Auto Relax
+    editorTemplate -beginLayout "Corner Auto Relax" -collapse 0;
+        editorTemplate -annotation "Main influence strength of corner relaxation (0-1)"
+            -addControl "cornerAutoRelax";
+        editorTemplate -annotation "Angle in degrees where corner relax begins (0-90)"
+            -addControl "autoRelaxStartAngle";
+        editorTemplate -annotation "Angle in degrees where corner relax reaches peak effect (0-90)"
+            -addControl "autoRelaxEndAngle";
+        editorTemplate -annotation "Percentage of half segment distance that corner relax propagates (0-1)"
+            -addControl "autoRelaxSegmentPortion";
+    editorTemplate -endLayout;
+
+    // Propagation Settings
+    editorTemplate -beginLayout "Propagation" -collapse 0;
+        editorTemplate -annotation "Number of edge loop where the influence expands from the main edge"
+            -addControl "propagateIterations";
+        editorTemplate -annotation "Overall influence strength on surrounding edge loops (0-1)"
+            -addControl "propagateInfluence";
+        editorTemplate -annotation "Number of edge loops around the main one to follow completely"
+            -addControl "holdLoops";
+        editorTemplate -annotation "Hold loops influence strength"
+            -addControl "holdInfluence";
+
+    editorTemplate -endLayout;
+
+    // Edge Loop Setup
+    editorTemplate -beginLayout "Component Tags Names" -collapse 1;
+        editorTemplate -annotation "Component tag name for upper lip edge loop"
+            -addControl "edgeLoopNameA";
+        editorTemplate -annotation "Component tag name for lower lip edge loop"
+            -addControl "edgeLoopNameB";
+    editorTemplate -endLayout;
+
+    // Standard deformer attributes
+    editorTemplate -beginLayout "Deformer Attributes" -collapse 1;
+        editorTemplate -addControl "envelope";
+    editorTemplate -endLayout;
+
+    // Add any extra attributes
+    editorTemplate -addExtraControls;
+
+    editorTemplate -endScrollLayout;
+
+    editorTemplate -suppress "input";
+    editorTemplate -suppress "outputGeom";
+}
+
+)my_delimiter");
 
     return MS::kSuccess;
 }
@@ -404,6 +474,44 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         m_lowerPoints = SteelMeshUtils::createOrderedVertices(lowerEdgeObj, meshObj);
         // DEBUG_PRINT(MString("Upper curve points") + std::to_string(m_upperPoints.first.size()).c_str());
 
+        // Detect if edges are going in opposite directions
+        bool reverseNeeded = false;
+        const double tolerance = 0.0001;
+
+        // Get the start and end points of both edges
+        MVector up_start = ptAsVec(m_upperPoints[0]);
+        MVector up_end = ptAsVec(m_upperPoints[m_upperPoints.size() - 1]);
+        MVector down_start = ptAsVec(m_lowerPoints[0]);
+        MVector down_end = ptAsVec(m_lowerPoints[m_lowerPoints.size() - 1]);
+
+        // Check if start points match or end points match
+        bool startMatch = (up_start - down_start).length() < tolerance;
+        bool endMatch = (up_end - down_end).length() < tolerance;
+
+        // If neither start nor end points match, edges are going in opposite directions
+        if (!startMatch && !endMatch)
+        {
+            reverseNeeded = true;
+            // DEBUG_PRINT("Edges are going in opposite directions... reversing one");
+        }
+        else
+        {
+            // DEBUG_PRINT("Edges are going in same direction");
+        }
+
+        // If reverse is needed, reverse the larger segment
+        if (reverseNeeded)
+        {
+            if (m_upperPoints.size() >= m_lowerPoints.size())
+            {
+                std::ranges::reverse(m_upperPoints);
+            }
+            else
+            {
+                std::ranges::reverse(m_lowerPoints);
+            }
+        }
+
         // We now resample the segment with LESS points to have a even point number on both sides.
         // the side without resample, will simply "snap" on the middle line.
         // the side with the resample, will snap to the closest point of the middle line.
@@ -423,6 +531,8 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
         m_resampleOriginalIndex.resize(m_largerCount);
         m_originalToResampleIndex.resize(smallerCount, -1);
+
+
 
         for (int largerIdx = 0; largerIdx < m_largerCount; ++largerIdx)
         {
@@ -457,7 +567,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     std::vector<MVector> smallerPoints;
     largerPoints.reserve(m_larger->size());
     smallerPoints.reserve(m_smaller->size());
-
+    //
     for (const int index: *m_larger)
     {
         MPoint pt;

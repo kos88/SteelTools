@@ -1,6 +1,7 @@
 import logging as log
 from collections import defaultdict
 from typing import Callable
+import math
 
 import maya.cmds as cmds
 import maya.api.OpenMaya as om
@@ -82,12 +83,10 @@ class StickyMeshHelper:
         if not self.mesh_shape_name or not self.current_edges:
             return
 
-        sel_list = om.MSelectionList()
-        sel_list.add(self.mesh_shape_name)
-        dag_path = sel_list.getDagPath(0)
+        dag_path = self._get_dag_path()
+        mesh_fn = om.MFnMesh(dag_path)
         edge_it = om.MItMeshEdge(dag_path)
         vert_it = om.MItMeshVertex(dag_path)
-        mesh_fn = om.MFnMesh(dag_path)
 
         # Collect unique vertex positions
         verts = {}
@@ -158,7 +157,99 @@ class StickyMeshHelper:
         self.current_faces = list(face_ids)
         logger.debug(f"Stored faces {len(self.current_faces)}")
 
+    def auto_compute_thresholds(self):
+        """Walk both edge loops in the same direction and find some decent initial thresholds"""
+        if not self.mesh_shape_name or not self.current_edges or not all([self.upper_edge, self.lower_edge]):
+            return None
+
+        ab_up = self.upper_edge[0]
+        ab_down = self.lower_edge[0]
+
+        dag_path = self._get_dag_path()
+        mesh_fn = om.MFnMesh(dag_path)
+
+        up_ids = mesh_fn.getEdgeVertices(ab_up)
+        up_pt_a: om.MPoint = mesh_fn.getPoint(up_ids[0])
+        up_pt_b: om.MPoint = mesh_fn.getPoint(up_ids[1])
+        down_ids = mesh_fn.getEdgeVertices(ab_down)
+        down_pt_a: om.MPoint = mesh_fn.getPoint(down_ids[0])
+        down_pt_b: om.MPoint = mesh_fn.getPoint(down_ids[1])
+
+        tolerance = 0.0001
+        reverse_needed = False
+        unmatching = []
+        for up_pt in (up_pt_a, up_pt_b):
+            for down_pt in (down_pt_a, down_pt_b):
+                if up_pt.distanceTo(down_pt) >= tolerance:
+                    unmatching.append(True)
+                else:
+                    unmatching.append(False)
+
+
+        if all(unmatching): # We need to reverse one...
+            reverse_needed = True
+            logger.debug("Edges are going in opposite directions...")
+        else:
+            logger.debug("At least two start points below tolerance... same direction")
+
+        max_distance: float = 0
+        safe_count = min(len(self.upper_edge), len(self.lower_edge))
+
+        # Try to understand how curved is the shape.
+        # very linear edges will need a higher threshold to look good as the overall average distance
+        # is the same while very concave curves will need less as there is a big difference
+        mids = []
+
+        for x in range(safe_count):
+            index_up = x
+            index_down = -x if reverse_needed else x
+            curr_up_ids = mesh_fn.getEdgeVertices(self.upper_edge[index_up])
+            curr_down_ids = mesh_fn.getEdgeVertices(self.lower_edge[index_down])
+            # We check just one point..
+            pt_up = mesh_fn.getPoint(curr_up_ids[0], space=om.MSpace.kObject)
+            pt_down = mesh_fn.getPoint(curr_down_ids[0], space=om.MSpace.kObject)
+            dist = pt_up.distanceTo(pt_down)
+            logger.debug(f"Dist between {curr_up_ids[0]} - {curr_down_ids[0]}: {dist}")
+            if dist > max_distance:
+                max_distance = dist
+
+            # Curve variance
+            mids.append((om.MVector(pt_up) + om.MVector(pt_down)) / 2)
+
+        curve_mult = 1.0
+
+        if len(mids) >= 3:
+            p1 = mids[0]
+            p2 = mids[len(mids) // 4]
+            p3 = mids[len(mids) // 2]
+
+            chord = (p3 - p1).length()
+            a = (p2 - p1).length()
+            b = (p3 - p2).length()
+            c = (p3 - p1).length()
+            area = ((p2 - p1) ^ (p3 - p1)).length() / 2
+            radius = (a * b * c) / (4 * area) if area > 1e-9 else float('inf')
+
+            # normalized: tight circle → small, flat arc → large
+            curvature = chord / radius if radius < float('inf') else 0.0
+            logger.debug(f"Curve radius={radius:.3f} chord={chord:.3f} curvature={curvature:.3f}")
+
+            # curvature ~1.1 = flat → 1.5, curvature ~1.3 = curved → 0.9
+            curve_mult = 1.5 - (curvature - 1.0) * 3.0
+            curve_mult = max(0.9, min(2.0, curve_mult))
+            logger.debug(f"Curve curvature={curvature:.3f} mult={curve_mult:.3f}")
+
+        max_t = max_distance * curve_mult
+        min_t = max_distance / (2.5 / curve_mult)
+        logger.debug(f"Found thresholds {max_t} {min_t}")
+        return max_t, min_t
+
     # ---------------------------------------------------------------------------------------------------------------- #
+    def _get_dag_path(self) -> om.MDagPath:
+        sel_list = om.MSelectionList()
+        sel_list.add(self.mesh_shape_name)
+        return sel_list.getDagPath(0)
+
     def _setup_callback(self):
         self._remove_callback()
         self._sel_callback = om.MEventMessage.addEventCallback("SelectionChanged",
@@ -178,9 +269,7 @@ class StickyMeshHelper:
 
         self.corner_vertices = [left_idx, right_idx]
 
-        sel_list = om.MSelectionList()
-        sel_list.add(self.mesh_shape_name)
-        dag_path = sel_list.getDagPath(0)
+        dag_path = self._get_dag_path()
         edge_it = om.MItMeshEdge(dag_path)
 
         # Create two lookups one direct and one reverse to "efficiently" walk on edges
@@ -252,7 +341,6 @@ class StickyMeshHelper:
         self.current_edges = list(edge_comp.getElements())
         logger.debug(f"Saved num initial edges {len(self.current_edges)}")
 
-
     def _highlightMeshComponents(self, selection: om.MSelectionList):
         om.MGlobal.setPreselectionHiliteList(selection)
         logger.debug(f"Preselection faces: {self.current_faces}")
@@ -299,6 +387,7 @@ class StickyMeshHelper:
 
         highlight_list.add((dag_path, face_obj))
         self._highlightMeshComponents(highlight_list)
+
 
 class StickyLipsValues:
 
@@ -430,6 +519,7 @@ class StickyLipsCreator:
         # Widgets
         self.setup_text_hint = None
         self.grow_amount_slider = None
+        self.corner_vertices_text = None
 
         # tag names
         self.lip_area_comp_text_field = None
@@ -477,6 +567,7 @@ class StickyLipsCreator:
 
         self._build_selection_area()
         self._build_deformer_options()
+        self._build_tag_names_options()
         self._build_buttons(main_form, scroll)
 
         cmds.showWindow(window)
@@ -531,32 +622,16 @@ class StickyLipsCreator:
                        columnWidth3=(140, 120, 120),
                        columnAttach=[(1, "left", 0), (2, "both", 5), (3, "both", 5)])
 
-        cmds.text(label="Corner Edges:", align="right", width=140)
-        cmds.button(label="Highlight detected", command=self._on_auto_detect_corners)
+        cmds.text(label="Corner Vertices:", align="right", width=140)
+        cmds.button(label="Detect", command=self._on_auto_detect_corners)
+        self.corner_vertices_text = cmds.text(label="...")
         cmds.setParent("..")
+        # cmds.intFieldGrp( numberOfFields=2, label='Index', extraLabel='cm', value1=3, value2=5)
 
-
-        # cmds.frameLayout(label="Component Tag Names", collapsable=False)
-        cmds.separator(height=20, style="in")
-        cmds.text(label="Component Tag Names", font="boldLabelFont", align="left")
         cmds.separator(height=10, style="none")
-        self.lip_area_comp_text_field = cmds.textFieldGrp(label="Lip Area", text=self.values_helper.area_tag_name)
-        self.up_edge_comp_text_field = cmds.textFieldGrp(label="Upper Edge", text=self.values_helper.upper_tag_name)
-        self.low_edge_comp_text_field = cmds.textFieldGrp(label="Lower Edge", text=self.values_helper.lower_tag_name)
 
-        cmds.setParent("..")
-        cmds.separator(height=20, style="in")
-
-
-    def _build_deformer_options(self):
-        cmds.frameLayout(
-            "advancedGroup",
-            label="Deformer Options",
-            collapsable=True,
-            collapse=True
-        )
-
-        # cmds.text(label="Main Parameters", font="boldLabelFont", align="left")
+        cmds.separator(height=10, style="none")
+        cmds.text(label="Set the pose where the sticky effect should be completely gone, then set the thresholds")
         cmds.separator(height=10, style="none")
 
         self.sticky_max_slider = cmds.floatSliderGrp(
@@ -581,6 +656,27 @@ class StickyLipsCreator:
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
+        cmds.rowLayout(numberOfColumns=3,
+                       columnWidth3=(140, 120, 120),
+                       columnAttach=[(1, "left", 0), (2, "both", 5), (3, "both", 5)])
+
+        cmds.text(label="Auto Detect Thresholds:", align="right", width=140)
+        cmds.button(label="From Current", command=self._on_auto_compute_thresholds)
+        cmds.setParent("..")
+
+
+    def _build_deformer_options(self):
+        cmds.frameLayout(
+            "advancedGroup",
+            label="More Options",
+            collapsable=True,
+            collapse=False
+        )
+
+        # cmds.text(label="Main Parameters", font="boldLabelFont", align="left")
+
+
+        cmds.separator(height=15, style="in")
         self.sticky_smooth_slider = cmds.floatSliderGrp(
             label="Sticky Edge Smoothness: ",
             field=True,
@@ -646,7 +742,7 @@ class StickyLipsCreator:
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
-        cmds.separator(height=5, style="none")
+        cmds.separator(height=15, style="in")
         self.influence_amount_slider = cmds.floatSliderGrp(
             label="Propagate Influence: ",
             field=True,
@@ -675,10 +771,22 @@ class StickyLipsCreator:
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
+        cmds.separator(height=15, style="in")
         cmds.setParent("..")
         cmds.setParent("..")
 
-        cmds.separator(height=15, style="in")
+
+    def _build_tag_names_options(self):
+        cmds.frameLayout(label="Component Tag Names", collapsable=True)
+        # cmds.separator(height=20, style="in")
+        # cmds.text(label="Component Tag Names", font="boldLabelFont", align="left")
+        # cmds.separator(height=10, style="none")
+        self.lip_area_comp_text_field = cmds.textFieldGrp(label="Lip Area", text=self.values_helper.area_tag_name)
+        self.up_edge_comp_text_field = cmds.textFieldGrp(label="Upper Edge", text=self.values_helper.upper_tag_name)
+        self.low_edge_comp_text_field = cmds.textFieldGrp(label="Lower Edge", text=self.values_helper.lower_tag_name)
+
+        cmds.setParent("..")
+        cmds.separator(height=20, style="in")
 
     def _build_buttons(self, main_form, scroll):
         # Buttons on top, outside scroll!
@@ -716,6 +824,20 @@ class StickyLipsCreator:
 
     def _on_auto_detect_corners(self, *args):
         self.mesh_helper.find_corner_vertices()
+        if self.mesh_helper.corner_vertices:
+            vtx_a = self.mesh_helper.corner_vertices[0]
+            vtx_b = self.mesh_helper.corner_vertices[1]
+            cmds.text(self.corner_vertices_text, edit=True, label=f"Stored: {vtx_a} {vtx_b}")
+
+    def _on_auto_compute_thresholds(self, *args):
+        if not self.mesh_helper.corner_vertices:
+            self._on_auto_detect_corners()
+
+        thresholds = self.mesh_helper.auto_compute_thresholds()
+        if thresholds:
+            cmds.floatSliderGrp(self.sticky_max_slider, e=True, v=thresholds[0])
+            cmds.floatSliderGrp(self.sticky_min_slider, e=True, v=thresholds[1])
+
 
     def _on_close(self, *args):
         self._save_settings()
@@ -786,7 +908,7 @@ class StickyLipsCreator:
                                      area_component_tag=self.values_helper.area_tag_name,
                                      upper_edge_component_tag=self.values_helper.upper_tag_name,
                                      lower_edge_component_tag=self.values_helper.lower_tag_name,
-
+                                     sticky_seal=self.values_helper.max_threshold,
                                      max_threshold=self.values_helper.max_threshold,
                                      min_threshold=self.values_helper.min_threshold,
                                      edge_smooth=self.values_helper.edge_smooth,
