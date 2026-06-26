@@ -111,7 +111,7 @@ MStatus StickyLipsNode::initialize() {
     attributeAffects(s_distanceMinThreshold, outputGeom);
 
 
-    s_stickySharpness = nAttr.create("sharpness", "shrp", MFnNumericData::kFloat, 1.0);
+    s_stickySharpness = nAttr.create("edgeRetract", "shrp", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
@@ -189,15 +189,15 @@ MStatus StickyLipsNode::initialize() {
     attributeAffects(s_propagateInfluence, outputGeom);
 
 
-    s_propagateHold = nAttr.create("holdLoops", "hlop", MFnNumericData::kInt, 1);
-    nAttr.setMin(0);
-    // nAttr.setMax(10);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_propagateHold);
-    attributeAffects(s_propagateHold, outputGeom);
-
-    s_propagateHoldInfluence = nAttr.create("holdInfluence", "phli", MFnNumericData::kFloat, 0.9);
+    // s_propagateHold = nAttr.create("holdLoops", "hlop", MFnNumericData::kInt, 1);
+    // nAttr.setMin(0);
+    // // nAttr.setMax(10);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_propagateHold);
+    // attributeAffects(s_propagateHold, outputGeom);
+    //
+    s_propagateHoldInfluence = nAttr.create("propagateEdgeTension", "eten", MFnNumericData::kFloat, 0.9);
     nAttr.setMin(0.0);
     nAttr.setMax(1.0);
     nAttr.setKeyable(true);
@@ -205,13 +205,13 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_propagateHoldInfluence);
     attributeAffects(s_propagateHoldInfluence, outputGeom);
 
-    // s_propagateTension = nAttr.create("propagateTension", "ptes", MFnNumericData::kFloat, 0.5);
+    s_propagateTension = nAttr.create("propagateTension", "ptes", MFnNumericData::kFloat, 0.5);
     // nAttr.setMin(0.0);
     // nAttr.setMax(2.0);
-    // nAttr.setKeyable(true);
-    // nAttr.setStorable(true);
-    // addAttribute(s_propagateTension);
-    // attributeAffects(s_propagateTension, outputGeom);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_propagateTension);
+    attributeAffects(s_propagateTension, outputGeom);
 
 
 
@@ -588,9 +588,9 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // ---------------------------------------- Values extraction --------------------------------------------------- //
     const int propagationPasses = block.inputValue(s_propagateIterations).asInt();
     const float propagateInfluence = block.inputValue(s_propagateInfluence).asFloat();
-    // const float propagateTension = block.inputValue(s_propagateTension).asFloat();
+    const float propagateTension = block.inputValue(s_propagateTension).asFloat();
 
-    const int propagateHold = block.inputValue(s_propagateHold).asInt();
+    // const int propagateHold = block.inputValue(s_propagateHold).asInt();
     // const float propagateHoldTension = block.inputValue(s_propagateHoldTension).asFloat();
     const float propagateHoldInfluence = block.inputValue(s_propagateHoldInfluence).asFloat();
 
@@ -611,9 +611,16 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     const float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
 
     // Dirty propagation caches based on expansion parameters
-    if (m_lastPropagateHold != propagateHold || m_lastPropagationPasses != propagationPasses)
+    // if (m_lastPropagateHold != propagateHold || m_lastPropagationPasses != propagationPasses)
+    // {
+    //     m_lastPropagateHold = propagateHold;
+    //     m_lastPropagationPasses = propagationPasses;
+    //     DEBUG_PRINT("Parameter change requested cache recompute");
+    //     m_computeCaches = true;
+    // }
+
+    if (m_lastPropagationPasses != propagationPasses)
     {
-        m_lastPropagateHold = propagateHold;
         m_lastPropagationPasses = propagationPasses;
         DEBUG_PRINT("Parameter change requested cache recompute");
         m_computeCaches = true;
@@ -798,9 +805,15 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         {
             std::unordered_map<int, VertexCache> newCache = m_vertexCache;
 
-            double t             = (propagationPasses > 1) ? static_cast<double>(pass) / (propagationPasses - 1) : 0.0;
-            double cosine        = (std::cos(t * M_PI) + 1.0) / 2.0;
-            double passFactor    = cosine;
+            // double t             = (propagationPasses > 1) ? static_cast<double>(pass) / (propagationPasses - 1) : 0.0;
+            // double cosine        = (std::cos(t * M_PI) + 1.0) / 2.0;
+            // double passFactor    = cosine;
+            // double passFactor    = t;
+            // double t             = (propagationPasses > 1) ? static_cast<double>(pass) / (propagationPasses) : 0.0;
+            // double cosine        = (std::cos(t * M_PI) + 1.0) / 2.0;
+            // double passFactor = t;
+            // double passFactor    = std::pow(cosine, std::pow(2.0, propagateTension));
+            // double passFactor    = std::pow(cosine, std::pow(2.0, propagateTension));
 
             for (const auto& [idx, cache] : m_vertexCache)
             {
@@ -812,7 +825,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
                 MIntArray neighborList;
                 neighborIter.getConnectedVertices(neighborList);
 
-                double propagatedWeight = cache.normalizedWeight * passFactor;
+                double propagatedWeight = cache.normalizedWeight;//cache.normalizedWeight * passFactor;
 
                 for (unsigned int i = 0; i < neighborList.length(); i++)
                 {
@@ -867,9 +880,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         edgeTargetPos[posAMeshIndex] = posA + blendVal * (posM - posA);
         edgeTargetPos[posBMeshIndex] = posB + blendVal * (posM - posB);
 
-
-
-
     }
 
     // Now we can deform the mesh in one single pass
@@ -907,11 +917,60 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         // edge vertices (sentinel -1): always full weight, bypass influence scaling
         // propagated vertices: scale normalizedWeight by hold or regular influence
         //                      depending on which pass first reached them
-        double infl = cache.reachedAtPass == -1 ? 1.0 : (cache.reachedAtPass < propagateHold ? propagateHoldInfluence : propagateInfluence);
+        // this part is definitely wrong....
+        // what you want is to have the influence expand like the hold loops but with a tension that controls the phase of the funciton
+        // double infl = cache.reachedAtPass == -1 ? 1.0 : (cache.reachedAtPass < propagateHold ? propagateHoldInfluence : propagateInfluence);
 
         // inherit the source edge vertex's displacement this frame, scaled by weight
+        // MVector sourceDisplacement = targetIt->second - originalIt->second;
+        // MPoint  deformed;
+        // if (cache.reachedAtPass == -1)
+        //     deformed = pos + cache.normalizedWeight * sourceDisplacement;
+        // else
+        // {
+        //     double t = (propagationPasses > 1) ? static_cast<double>(cache.reachedAtPass) / (propagationPasses - 1) : 0.0;;
+        //     double cosine = (std::cos(t * M_PI) + 1.0) / 2.0;
+        //     // double cosine = (std::cos(t * M_PI) + propagateHoldInfluence) / (propagateHoldInfluence*2.0);
+        //     deformed = pos + std::pow(cosine, std::pow(2.0, propagateTension)) * sourceDisplacement;
+        // }
+
         MVector sourceDisplacement = targetIt->second - originalIt->second;
-        MPoint  deformed = pos + (cache.normalizedWeight * infl) * sourceDisplacement;
+        MPoint  deformed;
+        if (cache.reachedAtPass == -1)
+            deformed = pos + cache.normalizedWeight * sourceDisplacement;
+        else
+        {
+            double t = static_cast<double>(cache.reachedAtPass + 1) / (propagationPasses + 1);
+
+            // holdInfluence stretches/squishes the cosine width
+            // double tScaled = std::min(1.0, t / std::max(static_cast<double>(propagateHoldInfluence), 0.001));
+            // double cosine = (std::cos(tScaled * M_PI) + 1.0) / 2.0;
+
+            // double s = tScaled * tScaled * tScaled * (tScaled * (tScaled * 6.0 - 15.0) + 10.0);
+            // double cosine = (std::cos(s * M_PI) + 1.0) / 2.0;
+
+
+            double sCurveStrength = propagateHoldInfluence * 2; // 0.0 = no effect, 1.0 = full smoothstep
+            double s = t * t * (3.0 - 2.0 * t);
+            double blended = t + (s - t) * sCurveStrength;
+            double cosine = (std::cos(blended * M_PI) + 1.0) / 2.0;
+
+            double shaped;
+            if (propagateTension >= 0.0)
+            {
+                double exp = std::pow(4.0, propagateTension);
+                shaped = exp == 0.0 ? 1.0 : std::pow(cosine, exp);
+            }
+            else
+            {
+                // double bump = std::sin(tScaled * M_PI) * (-propagateTension);
+                double bump = std::sin(t * M_PI) * (-propagateTension);
+                shaped = std::clamp(cosine + bump, 0.0, 1.0);
+            }
+
+            deformed = pos + shaped * propagateInfluence * cache.normalizedWeight * sourceDisplacement;
+        }
+
 
         iter.setPosition(pos + (deformed - pos) * envelope, MSpace::kObject);
         count++;
