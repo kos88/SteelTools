@@ -19,8 +19,8 @@ def create_sticky_lips(mesh_name: str,
 
                        propagate_iterations=4,
                        propagate_influence=1.0,
-                       propagate_hold=1,
-                       propagate_hold_influence=1.0,
+                       propagate_tension=1,
+                       propagate_edge_tension=1.0,
                        ):
     ...
     cmds.undoInfo(openChunk=True)
@@ -30,8 +30,8 @@ def create_sticky_lips(mesh_name: str,
         cmds.setAttr(f"{created_name}.maxThreshold", max_threshold)
         cmds.setAttr(f"{created_name}.minThreshold", min_threshold)
 
+        cmds.setAttr(f"{created_name}.edgeRetract", edge_sharpness)
         cmds.setAttr(f"{created_name}.edgeSmooth", edge_smooth)
-        cmds.setAttr(f"{created_name}.sharpness", edge_sharpness)
 
         cmds.setAttr(f"{created_name}.cornerAutoRelax", corner_auto_relax)
         cmds.setAttr(f"{created_name}.autoRelaxStartAngle", auto_relax_start_angle)
@@ -39,8 +39,8 @@ def create_sticky_lips(mesh_name: str,
 
         cmds.setAttr(f"{created_name}.propagateIterations", propagate_iterations)
         cmds.setAttr(f"{created_name}.propagateInfluence", propagate_influence)
-        cmds.setAttr(f"{created_name}.holdLoops", propagate_hold)
-        cmds.setAttr(f"{created_name}.holdInfluence", propagate_hold_influence)
+        cmds.setAttr(f"{created_name}.propagateTension", propagate_tension)
+        cmds.setAttr(f"{created_name}.propagateEdgeTension", propagate_edge_tension)
 
         cmds.setAttr(f"{created_name}.input[0].componentTagExpression", area_component_tag, type='string')
         cmds.setAttr(f"{created_name}.edgeLoopNameA", upper_edge_component_tag, type='string')

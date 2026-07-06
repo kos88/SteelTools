@@ -435,20 +435,20 @@ class StickyLipsValues:
         self.settings_helper.set_value("propagate_influence", value)
 
     @property
-    def propagate_hold(self) -> int:
-        return self.settings_helper.get_value("propagate_hold", 1)
+    def propagate_tension(self) -> int:
+        return self.settings_helper.get_value("propagate_tension", 1)
 
-    @propagate_hold.setter
-    def propagate_hold(self, value: int):
-        self.settings_helper.set_value("propagate_hold", value)
+    @propagate_tension.setter
+    def propagate_tension(self, value: int):
+        self.settings_helper.set_value("propagate_tension", value)
 
     @property
-    def propagate_hold_influence(self) -> float:
-        return self.settings_helper.get_value("propagate_hold_influence", 0.5)
+    def propagate_edge_tension(self) -> float:
+        return self.settings_helper.get_value("propagate_edge_tension", 0.5)
 
-    @propagate_hold_influence.setter
-    def propagate_hold_influence(self, value: float):
-        self.settings_helper.set_value("propagate_hold_influence", value)
+    @propagate_edge_tension.setter
+    def propagate_edge_tension(self, value: float):
+        self.settings_helper.set_value("propagate_edge_tension", value)
 
     @property
     def max_threshold(self) -> float:
@@ -536,9 +536,9 @@ class StickyLipsCreator:
         self.auto_relax_start_slider = None
         self.auto_relax_end_slider = None
 
-        self.hold_amount_slider = None
         self.influence_amount_slider = None
-        self.hold_influence_amount_slider = None
+        self.tension_amount_slider = None
+        self.edge_tension_amount_slider = None
 
     @property
     def has_window(self) -> bool:
@@ -593,7 +593,7 @@ class StickyLipsCreator:
         self.values_helper.corner_auto_relax_end_angle = cmds.floatSliderGrp(self.auto_relax_end_slider, query=True, value=True)
 
         self.values_helper.propagate_amount = cmds.intSliderGrp(self.grow_amount_slider, query=True, value=True)
-        self.values_helper.propagate_hold = cmds.intSliderGrp(self.hold_amount_slider, query=True, value=True)
+        self.values_helper.propagate_hold = cmds.intSliderGrp(self.tension_amount_slider, query=True, value=True)
         self.values_helper.propagate_influence = cmds.floatSliderGrp(self.influence_amount_slider, query=True, value=True)
         self.values_helper.propagate_hold_influence = cmds.floatSliderGrp(self.influence_amount_slider, query=True, value=True)
 
@@ -753,21 +753,21 @@ class StickyLipsCreator:
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
-        self.hold_amount_slider = cmds.intSliderGrp(
-            label="Hold Loops: ",
+        self.tension_amount_slider = cmds.intSliderGrp(
+            label="Propagate Tension: ",
             field=True,
             minValue=0,
             maxValue=10,
-            value=self.values_helper.propagate_hold,
+            value=self.values_helper.propagate_tension,
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
-        self.hold_influence_amount_slider = cmds.floatSliderGrp(
-            label="Hold Influence: ",
+        self.edge_tension_amount_slider = cmds.floatSliderGrp(
+            label="Propagate Edge Tension: ",
             field=True,
             minValue=0.0,
             maxValue=1.0,
-            value=self.values_helper.propagate_hold_influence,
+            value=self.values_helper.propagate_edge_tension,
             columnWidth=[(1, 140), (2, 60), (3, 180)]
         )
 
@@ -920,8 +920,8 @@ class StickyLipsCreator:
 
                                      propagate_iterations=self.values_helper.propagate_amount,
                                      propagate_influence=self.values_helper.propagate_influence,
-                                     propagate_hold=self.values_helper.propagate_hold,
-                                     propagate_hold_influence=self.values_helper.propagate_hold_influence,
+                                     propagate_tension=self.values_helper.propagate_tension,
+                                     propagate_edge_tension=self.values_helper.propagate_edge_tension,
                                      )
 
         if self.has_window:
