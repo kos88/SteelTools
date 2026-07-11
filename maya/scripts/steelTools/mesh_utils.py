@@ -1,6 +1,6 @@
 import maya.api.OpenMaya as om
 
-def get_mesh_from_selection() -> str | None:
+def get_mesh_from_selection():
     """Get mesh shape name from any selection using API"""
     sel_list = om.MGlobal.getActiveSelectionList()
     if sel_list.length() == 0:
