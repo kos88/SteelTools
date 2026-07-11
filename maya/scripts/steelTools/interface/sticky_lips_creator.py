@@ -563,7 +563,7 @@ class StickyLipsCreator:
 
         # Scrollable content
         scroll = cmds.scrollLayout(childResizable=True)
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=5, margins=10)
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=5)
 
         self._build_selection_area()
         self._build_deformer_options()
