@@ -58,6 +58,9 @@ MObject StickyLipsNode::s_propagateHold;  // The amount of edge loops that are "
 MObject StickyLipsNode::s_propagateHoldTension;  // The amount of tension for the old loops
 MObject StickyLipsNode::s_propagateHoldInfluence;
 
+MObject StickyLipsNode::s_currentTime;
+MObject StickyLipsNode::s_sampleFrames;
+
 MObject StickyLipsNode::s_EdgeLoopA;
 MObject StickyLipsNode::s_EdgeLoopB;
 
@@ -213,7 +216,16 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_propagateTension);
     attributeAffects(s_propagateTension, outputGeom);
 
+    s_currentTime = nAttr.create("currentTime", "curtm", MFnNumericData::kInt, 0);
+    nAttr.setKeyable(true);
+    addAttribute(s_currentTime);
+    attributeAffects(s_currentTime, outputGeom);
 
+    s_sampleFrames = nAttr.create("sampleFrames", "samf", MFnNumericData::kInt, 10);
+    nAttr.setKeyable(true);
+    nAttr.setMin(1);
+    addAttribute(s_sampleFrames);
+    attributeAffects(s_sampleFrames, outputGeom);
 
     // s_propagateHoldTension = nAttr.create("holdPropagateLoopsTension", "phlt", MFnNumericData::kFloat, 0.5);
     // nAttr.setMin(0.0);
@@ -608,7 +620,12 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // const float stickyFalloffSmooth = block.inputValue(s_stickyFalloffSharpness).asFloat();
     const float stickySharpness = block.inputValue(s_stickySharpness).asFloat();
     // const float stickySharpnessStrength = block.inputValue(s_stickySharpnessStrength).asFloat();
-    const float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
+    float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
+
+    const int currentTime = block.inputValue(s_currentTime).asInt();
+    const int sampleFrames = block.inputValue(s_sampleFrames).asInt();
+
+
 
     // Dirty propagation caches based on expansion parameters
     // if (m_lastPropagateHold != propagateHold || m_lastPropagationPasses != propagationPasses)
@@ -636,6 +653,88 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // {
     //     MGlobal::displayInfo(element);
     // }
+
+    // Time storage for auto animation
+    bool sampleDistanceForAnim = false;
+    bool frameChanged = false;
+    if (currentTime > m_lastFrame)
+    {
+        DEBUG_PRINT("Move forward...");
+
+        if (m_elapsedFrames == sampleFrames)
+        {
+            m_elapsedFrames = 0;
+            sampleDistanceForAnim = true;
+            DEBUG_PRINT("Reset elapsed");
+        }
+        else
+        {
+            DEBUG_PRINT(MString("Elapsed") + m_elapsedFrames);
+            m_elapsedFrames++;
+        }
+
+        m_lastFrame = currentTime;
+        frameChanged = true;
+        DEBUG_PRINT(MString("Updated internal time to") + m_lastFrame);
+    }
+    else
+    {
+        DEBUG_PRINT("Time moved backward...reset");
+        m_lastFrame = 0;
+        m_elapsedFrames = 0;
+    }
+
+    {
+        const int halfIdx = std::max(1, m_largerCount / 2);
+        const MVector& posA = largerPoints[halfIdx];
+        const int smallerIdx = m_resampleOriginalIndex[halfIdx];
+        const MVector& posB  = smallerPoints[smallerIdx];
+        //
+        // DebugUtils::createDebugLocator("posA", posA, {0, 0, 0}, 1.0);
+        // DebugUtils::createDebugLocator("posB", posB, {0, 0, 0}, 1.0);
+
+        // square dist to know the direction
+        double dx = posA.x - posB.x;
+        double dy = posA.y - posB.y;
+        double dz = posA.z - posB.z;
+        double distanceDifference = dx*dx + dy*dy + dz*dz;
+
+        if (frameChanged)
+        {
+            float animSpeed = 10;
+
+            // -1:1 range to know the direction the lips are going based on N frames sample
+            float direction = (m_lastDistance <= distanceDifference) ? 1.0f : -1.0f;
+            DEBUG_PRINT(MString("Direction>> ") + direction);
+
+            if (direction != m_lastDirection)
+            {
+                m_directionChangeVal = m_internalAnimVal;
+                m_lastDirection      = direction;
+                m_elapsedFrames = 0;
+            }
+
+            float target  = direction > 0.0f ? stickyMaxThreshold : 0.0f;
+            float t       = std::clamp(static_cast<float>(m_elapsedFrames) / animSpeed, 0.0f, stickyMaxThreshold);
+            float smoothT = t * t * (3.0f - 2.0f * t);
+
+            m_internalAnimVal = m_directionChangeVal + (target - m_directionChangeVal) * smoothT;
+            DEBUG_PRINT(MString("Anim val: ") + m_internalAnimVal);
+
+            stickyAmount = m_internalAnimVal;
+            // stickyAmount = direction > 0.0 ? stickyMaxThreshold : 0.0;
+        }
+        //
+        // if (sampleDistanceForAnim)
+        // {
+        //     DEBUG_PRINT(MString("Stored dist was: ") + m_lastDistance + " new is: " + distanceDifference);
+        //     m_lastDistance = distanceDifference;
+        // }
+        DEBUG_PRINT(MString("Stored dist was: ") + m_lastDistance + " new is: " + distanceDifference);
+        m_lastDistance = distanceDifference;
+
+    }
+
 
 
     // A temp storage where the edge are "sticking" to do a second blur pass
@@ -855,6 +954,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     // bool collision_only = true;
     // MVector forward{0, 0, 1}; // for collision mode.. need to guess it
 
+
     std::unordered_map<int, MVector> edgeOriginalPos;
     std::unordered_map<int, MVector> edgeTargetPos;
 
@@ -913,26 +1013,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             continue;
 
         MPoint pos = iter.position(MSpace::kObject);
-
-        // edge vertices (sentinel -1): always full weight, bypass influence scaling
-        // propagated vertices: scale normalizedWeight by hold or regular influence
-        //                      depending on which pass first reached them
-        // this part is definitely wrong....
-        // what you want is to have the influence expand like the hold loops but with a tension that controls the phase of the funciton
-        // double infl = cache.reachedAtPass == -1 ? 1.0 : (cache.reachedAtPass < propagateHold ? propagateHoldInfluence : propagateInfluence);
-
-        // inherit the source edge vertex's displacement this frame, scaled by weight
-        // MVector sourceDisplacement = targetIt->second - originalIt->second;
-        // MPoint  deformed;
-        // if (cache.reachedAtPass == -1)
-        //     deformed = pos + cache.normalizedWeight * sourceDisplacement;
-        // else
-        // {
-        //     double t = (propagationPasses > 1) ? static_cast<double>(cache.reachedAtPass) / (propagationPasses - 1) : 0.0;;
-        //     double cosine = (std::cos(t * M_PI) + 1.0) / 2.0;
-        //     // double cosine = (std::cos(t * M_PI) + propagateHoldInfluence) / (propagateHoldInfluence*2.0);
-        //     deformed = pos + std::pow(cosine, std::pow(2.0, propagateTension)) * sourceDisplacement;
-        // }
 
         MVector sourceDisplacement = targetIt->second - originalIt->second;
         MPoint  deformed;

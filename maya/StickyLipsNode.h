@@ -57,6 +57,15 @@ class StickyLipsNode : public MPxDeformerNode
     std::unordered_map<int, VertexCache> m_vertexCache; // vertex id > cache where we know who is driving it and how much
     std::unordered_set<int>              m_edgeVertices;
 
+    int m_lastFrame = 0;
+    int m_elapsedFrames = 0;
+    double m_lastDistance = 0;
+    float m_internalAnimVal = 0.0;
+
+    int m_directionChangeTime;
+    float m_directionChangeVal;
+    float m_lastDirection;
+
 public:
     StickyLipsNode() = default;
     ~StickyLipsNode() override = default;
@@ -96,6 +105,9 @@ public:
     static MObject s_propagateHoldTension;
 
     // static MObject s_stickyAutoAnim;
+
+    static MObject s_currentTime;
+    static MObject s_sampleFrames;
 
     static MObject s_EdgeLoopA;
     static MObject s_EdgeLoopB;
