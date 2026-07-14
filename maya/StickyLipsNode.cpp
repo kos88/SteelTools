@@ -309,8 +309,8 @@ global proc AEsteelStickyLipsTemplate( string $nodeName )
 
     // Main Sticky Controls
     editorTemplate -beginLayout "Sticky Controls" -collapse 0;
-        editorTemplate -annotation "Distance threshold where lips seal together. Animate this for sticky behavior"
-            -addControl "sealDistance";
+        editorTemplate -annotation "0-1 value where lips seal together. Animate this for sticky behavior"
+            -addControl "stickyAmount";
         editorTemplate -annotation "Maximum distance where sticky effect begins"
             -addControl "maxThreshold";
         editorTemplate -annotation "Minimum distance where sticky effect is fully applied"

@@ -908,7 +908,7 @@ class StickyLipsCreator:
                                      area_component_tag=self.values_helper.area_tag_name,
                                      upper_edge_component_tag=self.values_helper.upper_tag_name,
                                      lower_edge_component_tag=self.values_helper.lower_tag_name,
-                                     sticky_seal=self.values_helper.max_threshold,
+                                     sticky_amount=1.0,
                                      max_threshold=self.values_helper.max_threshold,
                                      min_threshold=self.values_helper.min_threshold,
                                      edge_smooth=self.values_helper.edge_smooth,
