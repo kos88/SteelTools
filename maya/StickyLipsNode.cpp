@@ -898,6 +898,8 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         m_lastBlend.resize(m_largerCount);
         m_isClosing.resize(m_largerCount);
         m_perPointSticky.resize(m_largerCount);
+        m_isReleasing.resize(m_largerCount);
+        m_lastPeakAngle.resize(m_largerCount);
 
         // Create a 0-1 multiplier whithin the angle to drive the animation relaxation
         int leftCornerAngleIndex = -1;
@@ -951,6 +953,13 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         const int smallerIdx = m_resampleOriginalIndex[x];
         const MVector& posB  = smallerPoints[smallerIdx];
 
+        // Distance between A-B point to control general influence.. (maybe we can avoid real distance ans skip sqrt)
+        double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) +
+                                           std::pow((posA.y - posB.y), 2) +
+                                           std::pow((posA.z - posB.z), 2)
+                                           );
+        double localStickyAmount = stickyAmount;
+
         double cornerRelaxValue = 0;
         // // Simple distance base seal or corner relax enhanced
         // if (cornerAutoRelax > 0.0)
@@ -974,13 +983,7 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         //     // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
         // }
 
-        // Distance between A-B point to control general influence.. (maybe we can avoid real distance ans skip sqrt)
-        double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) +
-                                           std::pow((posA.y - posB.y), 2) +
-                                           std::pow((posA.z - posB.z), 2)
-                                           );
-
-        if (frameChanged)
+        if (frameChanged && autoAnim)
         {
             // Store the data of the direction std::vector<bool> m_isOpening;
             // Store the last distance if std::vector<float> m_lastDistance;
@@ -995,8 +998,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
 
             // Per-point sticky: gradually fades to 0 when lingering within stickyMaxThreshold, snaps up on close
-            const int halfIdx    = std::max(1, m_largerCount / 2);
-            const double middleDistance = m_lastDistances[halfIdx];
             const float engageStep = 1.0f / std::max(1.0f, engageDurationFrames);
             const float releaseStep = 1.0f / std::max(1.0f, releaseDurationFrames);
 
@@ -1013,18 +1014,40 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             if (distanceFromMid <= closeDist)
             {
                 // Closed: bump back to 1
+                m_isReleasing[x] = false;
+                m_lastPeakAngle[x] = 0.0f;
                 m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep * 3.0f); // extra snappy
                 if (x == 3) DEBUG_PRINT(MString("WE ARE CLOSING!..."));
             }
 
-            else if (targetAngle > 0.0f) // We are within the range
+            else if (targetAngle > 0.0f || m_isReleasing[x]) // We are within the range
             {
+                if (targetAngle > 0.0f)
+                {
+                    m_isReleasing[x] = true;
+                    // Track peak angle as it rises
+                    if (targetAngle > m_lastPeakAngle[x])
+                        m_lastPeakAngle[x] = targetAngle;
+                }
                 float stickyReleaseCurve = 1.0;
                 // Angle-based trigger: targetAngle is already 0-1 (influence, not degrees)
-                float animVal = std::clamp(static_cast<float>(targetAngle), 0.0f, 1.0f);
+                // float animVal = std::clamp(static_cast<float>(targetAngle), 0.0f, 1.0f);
+                // animVal = std::pow(animVal, 1.0f + stickyReleaseCurve * 10.0f);
+                // m_perPointSticky[x] = std::max(0.0f, m_perPointSticky[x] - releaseStep * animVal);
+
+                // Use peak angle
+                float rawAngle = std::clamp(static_cast<float>(m_lastPeakAngle[x]), 0.0f, 1.0f);
+                float animVal = std::max(rawAngle, 0.5f);
                 animVal = std::pow(animVal, 1.0f + stickyReleaseCurve * 10.0f);
                 m_perPointSticky[x] = std::max(0.0f, m_perPointSticky[x] - releaseStep * animVal);
                 if (x == 3) DEBUG_PRINT(MString("WE ARE RELEASING!...") + animVal);
+
+                // Reset release state if fully released and angle is gone
+                if (m_perPointSticky[x] <= 0.001f && targetAngle <= 0.0f)
+                {
+                    m_isReleasing[x] = false;
+                    m_lastPeakAngle[x] = 0.0f;
+                }
             }
             else
             {
@@ -1048,23 +1071,29 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             //     m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep);
             //     if (x == 3) DEBUG_PRINT(MString("RE ENGAGE..."));
             // }
+
+            localStickyAmount *= m_perPointSticky[x];
         }
+
 
         // ------- seems controllable
         double range = stickyMaxThreshold - stickyMinThreshold;
-        double stickyFullAmount = stickyAmount * stickyMaxThreshold; // Make sure we reach max to override the dist vals!
+        double stickyFullAmount = localStickyAmount * stickyMaxThreshold; // Make sure we reach max to override the dist vals!
         double stickyMinRange = stickyMinThreshold - (range + (1.0 - stickyFullAmount)) - (cornerRelaxValue*2);   // Distance where stickiness starts (min range)
         double stickyMaxRange = stickyMaxThreshold - (range + (1.0 - stickyFullAmount)) - (cornerRelaxValue*2);   // Distance where stickiness is maxed out (max range)
 
         // Map distance to a 0-1 signal based on min/max range
-        double blendValue = std::clamp(
+        double distanceWeight = std::clamp(
             (distanceFromMid - stickyMaxRange) / (stickyMinRange - stickyMaxRange),
             0.0,
             1.0
         );
 
-        blendValue = std::pow(blendValue, stickySharpness + 1.0); // controls the curve make it up down
+        double blendValue = std::pow(distanceWeight, stickySharpness + 1.0); // controls the curve make it up down
         blendVals[x] = blendValue;  // Store for blur pass in later stage
+
+
+
 
         if (autoAnim)
         {
@@ -1072,7 +1101,8 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
                 blendVals[x] = m_lastBlend[x];
             m_lastDistances[x] = distanceFromMid;
             m_lastBlend[x] = blendVals[x];
-            blendVals[x] *= m_perPointSticky[x]; // apply per-point sticky fade
+            // blendVals[x] *= m_perPointSticky[x]; // apply per-point sticky fade
+            // blendVals[x] -= m_perPointSticky[x]; // apply per-point sticky fade
         }
 
     }

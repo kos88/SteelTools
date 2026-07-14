@@ -64,6 +64,8 @@ class StickyLipsNode : public MPxDeformerNode
     std::vector<float> m_lastDistances;
     std::vector<float> m_lastBlend;
     std::vector<float> m_perPointSticky;
+    std::vector<float> m_lastPeakAngle;
+    std::vector<bool> m_isReleasing;
 
 
     int m_lastFrame = 0;
