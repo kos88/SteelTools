@@ -57,15 +57,29 @@ class StickyLipsNode : public MPxDeformerNode
     std::unordered_map<int, VertexCache> m_vertexCache; // vertex id > cache where we know who is driving it and how much
     std::unordered_set<int>              m_edgeVertices;
 
+
+
+    // Animation caches...
+    std::vector<bool> m_isClosing;
+    std::vector<float> m_lastDistances;
+    std::vector<float> m_lastBlend;
+    std::vector<float> m_perPointSticky;
+
+
     int m_lastFrame = 0;
     int m_elapsedFrames = 0;
-    double m_lastDistance = 0;
+    double m_lastDistance = -1.00;
     float m_internalAnimVal = 0.0;
+    float m_targetVal = 0.0f;
 
     int m_directionChangeTime;
     float m_directionChangeVal;
     float m_lastDirection;
+    // New/changed members
+    float m_smoothedVelocity = 0.0f;  // EMA of distance change per frame
+    int   m_animFrames       = 0;     // progress counter, separate from sampling
 
+    float   m_closingHoldCounter;
 public:
     StickyLipsNode() = default;
     ~StickyLipsNode() override = default;
@@ -92,10 +106,10 @@ public:
     static MObject s_stickySharpnessStrength;
     static MObject s_stickyFalloffSharpness;
 
-    static MObject s_cornerAutoRelax;
-    static MObject s_cornerAutoRelaxEndAngle;
-    static MObject s_cornerAutoRelaxStartAngle;
-    static MObject s_cornerAutoRelaxDistance;
+    // static MObject s_cornerAutoRelax;
+    // static MObject s_cornerAutoRelaxEndAngle;
+    // static MObject s_cornerAutoRelaxStartAngle;
+    // static MObject s_cornerAutoRelaxDistance;
 
     static MObject s_propagateHoldInfluence;
     static MObject s_propagateInfluence;
@@ -104,10 +118,16 @@ public:
     static MObject s_propagateHold;
     static MObject s_propagateHoldTension;
 
-    // static MObject s_stickyAutoAnim;
 
+    static MObject s_stickyAutoAnim;
     static MObject s_currentTime;
-    static MObject s_sampleFrames;
+    static MObject s_releaseDurationFrames;
+    static MObject s_engageDurationFrames;
+    static MObject s_animRelaxEndAngle;
+    static MObject s_animRelaxStartAngle;
+    static MObject s_animRelaxCurveDistance;
+
+    static MObject s_closeDistance;
 
     static MObject s_EdgeLoopA;
     static MObject s_EdgeLoopB;

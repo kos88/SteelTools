@@ -43,11 +43,11 @@ MObject StickyLipsNode::s_stickyFalloffSharpness;  //
 
 MObject StickyLipsNode::s_distanceMinThreshold;  // Define the min range where the sticky starts
 MObject StickyLipsNode::s_distanceMaxThreshold;  // Define the min range where the sticky ends
-
-MObject StickyLipsNode::s_cornerAutoRelax;  // main influence of corner relax
-MObject StickyLipsNode::s_cornerAutoRelaxStartAngle;  // the angle between where the relax starts
-MObject StickyLipsNode::s_cornerAutoRelaxEndAngle;  // the angle between where the relax is at it's peak
-MObject StickyLipsNode::s_cornerAutoRelaxDistance;  // the percent of half segment the corner relax propagates
+//
+// MObject StickyLipsNode::s_cornerAutoRelax;  // main influence of corner relax
+// MObject StickyLipsNode::s_cornerAutoRelaxStartAngle;  // the angle between where the relax starts
+// MObject StickyLipsNode::s_cornerAutoRelaxEndAngle;  // the angle between where the relax is at it's peak
+// MObject StickyLipsNode::s_cornerAutoRelaxDistance;  // the percent of half segment the corner relax propagates
 
 
 MObject StickyLipsNode::s_propagateInfluence;  // How much the edge loop surrounding area is affected
@@ -58,8 +58,17 @@ MObject StickyLipsNode::s_propagateHold;  // The amount of edge loops that are "
 MObject StickyLipsNode::s_propagateHoldTension;  // The amount of tension for the old loops
 MObject StickyLipsNode::s_propagateHoldInfluence;
 
+
+MObject StickyLipsNode::s_stickyAutoAnim;
 MObject StickyLipsNode::s_currentTime;
-MObject StickyLipsNode::s_sampleFrames;
+MObject StickyLipsNode::s_releaseDurationFrames;
+MObject StickyLipsNode::s_engageDurationFrames;
+
+MObject StickyLipsNode::s_animRelaxEndAngle;
+MObject StickyLipsNode::s_animRelaxStartAngle;
+MObject StickyLipsNode::s_animRelaxCurveDistance;
+
+MObject StickyLipsNode::s_closeDistance; // Tolerance for what is considered "closed" (point needs to ble closer than this
 
 MObject StickyLipsNode::s_EdgeLoopA;
 MObject StickyLipsNode::s_EdgeLoopB;
@@ -91,8 +100,9 @@ MStatus StickyLipsNode::initialize() {
     MFnNumericAttribute nAttr;
     MFnTypedAttribute tAttr;
 
-    s_stickyAmount = nAttr.create("sealDistance", "sta", MFnNumericData::kFloat, 1.0);
+    s_stickyAmount = nAttr.create("stickyAmount", "sta", MFnNumericData::kFloat, 1.0);
     nAttr.setMin(0.0);
+    nAttr.setMax(1.0);
     nAttr.setKeyable(true);
     nAttr.setStorable(true);
     addAttribute(s_stickyAmount);
@@ -143,37 +153,37 @@ MStatus StickyLipsNode::initialize() {
     // addAttribute(s_stickyFalloffSharpness);
     // attributeAffects(s_stickyFalloffSharpness, outputGeom);
 
-    s_cornerAutoRelax = nAttr.create("cornerAutoRelax", "carx", MFnNumericData::kFloat, 1.0);
-    nAttr.setMin(0.0);
-    nAttr.setMax(1.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_cornerAutoRelax);
-    attributeAffects(s_cornerAutoRelax, outputGeom);
-
-    s_cornerAutoRelaxStartAngle = nAttr.create("autoRelaxStartAngle", "crsa", MFnNumericData::kFloat, 20.0);
-    nAttr.setMin(0.0);
-    nAttr.setMax(90.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_cornerAutoRelaxStartAngle);
-    attributeAffects(s_cornerAutoRelaxStartAngle, outputGeom);
-
-    s_cornerAutoRelaxEndAngle = nAttr.create("autoRelaxEndAngle", "crea", MFnNumericData::kFloat, 45.0);
-    nAttr.setMin(0.0);
-    nAttr.setMax(90.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_cornerAutoRelaxEndAngle);
-    attributeAffects(s_cornerAutoRelaxEndAngle, outputGeom);
-
-    s_cornerAutoRelaxDistance = nAttr.create("autoRelaxSegmentPortion", "crd", MFnNumericData::kFloat, 0.3);
-    nAttr.setMin(0.0);
-    nAttr.setMax(1.0);
-    nAttr.setKeyable(true);
-    nAttr.setStorable(true);
-    addAttribute(s_cornerAutoRelaxDistance);
-    attributeAffects(s_cornerAutoRelaxDistance, outputGeom);
+    // s_cornerAutoRelax = nAttr.create("cornerAutoRelax", "carx", MFnNumericData::kFloat, 1.0);
+    // nAttr.setMin(0.0);
+    // nAttr.setMax(1.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_cornerAutoRelax);
+    // attributeAffects(s_cornerAutoRelax, outputGeom);
+    //
+    // s_cornerAutoRelaxStartAngle = nAttr.create("autoRelaxStartAngle", "crsa", MFnNumericData::kFloat, 20.0);
+    // nAttr.setMin(0.0);
+    // nAttr.setMax(90.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_cornerAutoRelaxStartAngle);
+    // attributeAffects(s_cornerAutoRelaxStartAngle, outputGeom);
+    //
+    // s_cornerAutoRelaxEndAngle = nAttr.create("autoRelaxEndAngle", "crea", MFnNumericData::kFloat, 45.0);
+    // nAttr.setMin(0.0);
+    // nAttr.setMax(90.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_cornerAutoRelaxEndAngle);
+    // attributeAffects(s_cornerAutoRelaxEndAngle, outputGeom);
+    //
+    // s_cornerAutoRelaxDistance = nAttr.create("autoRelaxSegmentPortion", "crd", MFnNumericData::kFloat, 0.3);
+    // nAttr.setMin(0.0);
+    // nAttr.setMax(1.0);
+    // nAttr.setKeyable(true);
+    // nAttr.setStorable(true);
+    // addAttribute(s_cornerAutoRelaxDistance);
+    // attributeAffects(s_cornerAutoRelaxDistance, outputGeom);
 
     s_propagateIterations = nAttr.create("propagateIterations", "pin", MFnNumericData::kInt, 3);
     nAttr.setMin(0);
@@ -221,11 +231,49 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_currentTime);
     attributeAffects(s_currentTime, outputGeom);
 
-    s_sampleFrames = nAttr.create("sampleFrames", "samf", MFnNumericData::kInt, 10);
+    s_stickyAutoAnim = nAttr.create("autoAnim", "auan", MFnNumericData::kBoolean, 1);
     nAttr.setKeyable(true);
-    nAttr.setMin(1);
-    addAttribute(s_sampleFrames);
-    attributeAffects(s_sampleFrames, outputGeom);
+    addAttribute(s_stickyAutoAnim);
+    attributeAffects(s_stickyAutoAnim, outputGeom);
+
+    s_releaseDurationFrames = nAttr.create("s_releaseDurationFrames", "rdf", MFnNumericData::kFloat, 3);
+    nAttr.setKeyable(true);
+    addAttribute(s_releaseDurationFrames);
+    attributeAffects(s_releaseDurationFrames, outputGeom);
+
+    s_engageDurationFrames = nAttr.create("engageDurationFrames", "edf", MFnNumericData::kFloat, 3);
+    nAttr.setKeyable(true);
+    addAttribute(s_engageDurationFrames);
+    attributeAffects(s_engageDurationFrames, outputGeom);
+
+    s_animRelaxStartAngle = nAttr.create("animRelaxStartAngle", "arsa", MFnNumericData::kFloat, 20.0);
+    nAttr.setMin(0.0);
+    nAttr.setMax(90.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_animRelaxStartAngle);
+    attributeAffects(s_animRelaxStartAngle, outputGeom);
+
+    s_animRelaxEndAngle = nAttr.create("animRelaxEndAngle", "area", MFnNumericData::kFloat, 45.0);
+    nAttr.setMin(0.0);
+    nAttr.setMax(90.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_animRelaxEndAngle);
+    attributeAffects(s_animRelaxEndAngle, outputGeom);
+
+    s_animRelaxCurveDistance = nAttr.create("animRelaxSegmentPortion", "arsp", MFnNumericData::kFloat, 0.3);
+    nAttr.setMin(0.0);
+    nAttr.setMax(1.0);
+    nAttr.setKeyable(true);
+    nAttr.setStorable(true);
+    addAttribute(s_animRelaxCurveDistance);
+    attributeAffects(s_animRelaxCurveDistance, outputGeom);
+
+    s_closeDistance = nAttr.create("closeDistance", "clodis", MFnNumericData::kFloat, 0.1);
+    nAttr.setKeyable(true);
+    addAttribute(s_closeDistance);
+    attributeAffects(s_closeDistance, outputGeom);
 
     // s_propagateHoldTension = nAttr.create("holdPropagateLoopsTension", "phlt", MFnNumericData::kFloat, 0.5);
     // nAttr.setMin(0.0);
@@ -611,10 +659,14 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     const float stickyMinThreshold = block.inputValue(s_distanceMinThreshold).asFloat();
 
 
-    const float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat();
-    const float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat();
-    const float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat();
-    const float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat();
+    // const float cornerAutoRelax = block.inputValue(s_cornerAutoRelax).asFloat();
+    // const float cornerAutoRelaxStartAngle = block.inputValue(s_cornerAutoRelaxStartAngle).asFloat();
+    // const float cornerAutoRelaxEndAngle = block.inputValue(s_cornerAutoRelaxEndAngle).asFloat();
+    // const float cornerAutoRelaxDistance = block.inputValue(s_cornerAutoRelaxDistance).asFloat();
+
+    const float cornerAutoRelaxStartAngle = block.inputValue(s_animRelaxStartAngle).asFloat();
+    const float cornerAutoRelaxEndAngle = block.inputValue(s_animRelaxEndAngle).asFloat();
+    const float cornerAutoRelaxDistance = block.inputValue(s_animRelaxCurveDistance).asFloat();
 
     const float stickyFalloff = block.inputValue(s_stickyFalloff).asFloat();
     // const float stickyFalloffSmooth = block.inputValue(s_stickyFalloffSharpness).asFloat();
@@ -623,7 +675,10 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     float stickyAmount = block.inputValue(s_stickyAmount).asFloat();
 
     const int currentTime = block.inputValue(s_currentTime).asInt();
-    const int sampleFrames = block.inputValue(s_sampleFrames).asInt();
+    const float releaseDurationFrames = block.inputValue(s_releaseDurationFrames).asFloat();
+    const float engageDurationFrames = block.inputValue(s_engageDurationFrames).asFloat();
+    const float closeDistance = block.inputValue(s_closeDistance).asFloat();
+    const bool autoAnim = block.inputValue(s_stickyAutoAnim).asBool();
 
 
 
@@ -654,86 +709,167 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
     //     MGlobal::displayInfo(element);
     // }
 
-    // Time storage for auto animation
-    bool sampleDistanceForAnim = false;
+    // --- Time handling ---
     bool frameChanged = false;
     if (currentTime > m_lastFrame)
     {
-        DEBUG_PRINT("Move forward...");
-
-        if (m_elapsedFrames == sampleFrames)
-        {
-            m_elapsedFrames = 0;
-            sampleDistanceForAnim = true;
-            DEBUG_PRINT("Reset elapsed");
-        }
-        else
-        {
-            DEBUG_PRINT(MString("Elapsed") + m_elapsedFrames);
-            m_elapsedFrames++;
-        }
-
-        m_lastFrame = currentTime;
         frameChanged = true;
-        DEBUG_PRINT(MString("Updated internal time to") + m_lastFrame);
+        m_lastFrame  = currentTime;
     }
-    else
+    else if (currentTime < m_lastFrame)
     {
         DEBUG_PRINT("Time moved backward...reset");
-        m_lastFrame = 0;
-        m_elapsedFrames = 0;
+        m_lastFrame        = currentTime;
+        m_lastDistance     = -1.0;
+        m_smoothedVelocity = 0.0f;
     }
 
-    {
-        const int halfIdx = std::max(1, m_largerCount / 2);
-        const MVector& posA = largerPoints[halfIdx];
-        const int smallerIdx = m_resampleOriginalIndex[halfIdx];
-        const MVector& posB  = smallerPoints[smallerIdx];
-        //
-        // DebugUtils::createDebugLocator("posA", posA, {0, 0, 0}, 1.0);
-        // DebugUtils::createDebugLocator("posB", posB, {0, 0, 0}, 1.0);
-
-        // square dist to know the direction
-        double dx = posA.x - posB.x;
-        double dy = posA.y - posB.y;
-        double dz = posA.z - posB.z;
-        double distanceDifference = dx*dx + dy*dy + dz*dz;
-
-        if (frameChanged)
-        {
-            float animSpeed = 10;
-
-            // -1:1 range to know the direction the lips are going based on N frames sample
-            float direction = (m_lastDistance <= distanceDifference) ? 1.0f : -1.0f;
-            DEBUG_PRINT(MString("Direction>> ") + direction);
-
-            if (direction != m_lastDirection)
-            {
-                m_directionChangeVal = m_internalAnimVal;
-                m_lastDirection      = direction;
-                m_elapsedFrames = 0;
-            }
-
-            float target  = direction > 0.0f ? stickyMaxThreshold : 0.0f;
-            float t       = std::clamp(static_cast<float>(m_elapsedFrames) / animSpeed, 0.0f, stickyMaxThreshold);
-            float smoothT = t * t * (3.0f - 2.0f * t);
-
-            m_internalAnimVal = m_directionChangeVal + (target - m_directionChangeVal) * smoothT;
-            DEBUG_PRINT(MString("Anim val: ") + m_internalAnimVal);
-
-            stickyAmount = m_internalAnimVal;
-            // stickyAmount = direction > 0.0 ? stickyMaxThreshold : 0.0;
-        }
-        //
-        // if (sampleDistanceForAnim)
-        // {
-        //     DEBUG_PRINT(MString("Stored dist was: ") + m_lastDistance + " new is: " + distanceDifference);
-        //     m_lastDistance = distanceDifference;
-        // }
-        DEBUG_PRINT(MString("Stored dist was: ") + m_lastDistance + " new is: " + distanceDifference);
-        m_lastDistance = distanceDifference;
-
-    }
+    // {
+    //
+    //     // We sample the top and bottom mid points here, this is usually the area with bigger movement
+    //     const int halfIdx    = std::max(1, m_largerCount / 2);
+    //     const MVector& posA  = largerPoints[halfIdx];
+    //     const int smallerIdx = m_resampleOriginalIndex[halfIdx];
+    //     const MVector& posB  = smallerPoints[smallerIdx];
+    //
+    //     const double dx = posA.x - posB.x;
+    //     const double dy = posA.y - posB.y;
+    //     const double dz = posA.z - posB.z;
+    //     const double distance = std::sqrt(dx*dx + dy*dy + dz*dz);
+    //
+    //     if (frameChanged)
+    //     {
+    //         // // --- User-facing parameters (all in frames or scene units) ---
+    //         // const float releaseDuration = std::max(1.0f, releaseDurationFrames); // e.g. 4
+    //         // const float engageDuration  = std::max(1.0f, engageDurationFrames);  // e.g. 2
+    //         // const float velThreshold    = std::max(0.0f, 5e-4f);       // e.g. 5e-4
+    //         // const float closeDist       = std::max(1e-6f, closeDistance);        // e.g. 0.05
+    //         //
+    //         // // Velocity smoothing is now a fixed internal constant. It only needs
+    //         // // to filter numerical noise, not to be an animator-facing knob.
+    //         // constexpr float kVelSmoothing = 0.4f;
+    //         //
+    //         // // Convert frame durations to per-frame filter rates.
+    //         // // These reach ~95% of the target after `duration` frames.
+    //         // auto framesToAlpha = [](float frames) {
+    //         //     return 1.0f - std::exp(-3.0f / frames);
+    //         // };
+    //         // const float alphaRelease = framesToAlpha(releaseDuration);
+    //         // const float alphaEngage  = framesToAlpha(engageDuration);
+    //         //
+    //         // if (m_lastDistance < 0.0)
+    //         // {
+    //         //     m_lastDistance     = distance;
+    //         //     m_smoothedVelocity = 0.0f;
+    //         //     m_internalAnimVal  = (distance <= closeDist) ? 1.0f : 0.0f;
+    //         // }
+    //
+    //         // const float rawVelocity = static_cast<float>(distance - m_lastDistance);
+    //         // m_smoothedVelocity += (rawVelocity - m_smoothedVelocity) * kVelSmoothing;
+    //         //
+    //         // const bool isClosing = (m_smoothedVelocity < -velThreshold);
+    //         // const bool isClosed  = (distance <= closeDist);
+    //         //
+    //         // // Target: 0 while lips are actively closing in mid-air, 1 otherwise.
+    //         // const float target = (isClosing && !isClosed) ? 0.0f : 1.0f;
+    //         //
+    //         // // Pick the rate based on which direction we're moving in the sticky value.
+    //         // // Going down (releasing sticky as lips close)  -> alphaRelease  (gradual)
+    //         // // Going up   (re-engaging on contact / at rest) -> alphaEngage  (snappy)
+    //         // const float rate = (target < m_internalAnimVal) ? alphaRelease : alphaEngage;
+    //         //
+    //         // m_internalAnimVal += (target - m_internalAnimVal) * rate;
+    //         // m_internalAnimVal = std::clamp(m_internalAnimVal, 0.0f, 1.0f);
+    //
+    //         //
+    //         // const float closeDist       = std::max(1e-6f, closeDistance);        // e.g. 0.05
+    //         // const bool isClosed  = (distance <= closeDist);
+    //         // float direction = (m_lastDistance <= distance) ? 1.0f : -1.0f;
+    //         // bool isDeadZone = ((m_lastDistance - distance) <= 0.1f); // We are in a "slow down" steady
+    //         //
+    //         // if (isClosed) // Quickly bump up the value to 1
+    //         // {
+    //         //     const float engageStep = 1.0f / std::max(1.0f, engageDurationFrames);
+    //         //     m_internalAnimVal = std::min(1.0f, m_internalAnimVal + engageStep);
+    //         // }
+    //         //
+    //         // if (direction == 1.0f) // We are opening
+    //         // {
+    //         //     // Do nothing, default weighting works, we must be at 1 here
+    //         // }
+    //         //
+    //         // if (direction == -1.0f) // we are closing!
+    //         // {
+    //         //     // Relax in N frames moving value to 0
+    //         //     const float releaseStep = 1.0f / std::max(1.0f, releaseDurationFrames);
+    //         //     m_internalAnimVal = std::max(0.0f, m_internalAnimVal - releaseStep);
+    //         // }
+    //         //
+    //         // // m_internalAnimVal = direction; // Pass the final animated value
+    //         // m_internalAnimVal = std::clamp(m_internalAnimVal, 0.0f, 1.0f); // Pass the final animated value
+    //         //
+    //         //
+    //         // m_lastDistance = distance;
+    //
+    //         // DEBUG_PRINT(MString("d: ") + distance +
+    //         //             " vel: " + m_smoothedVelocity +
+    //         //             " tgt: " + target +
+    //         //             " rate: " + rate +
+    //         //             " out: " + m_internalAnimVal);
+    //
+    //
+    //         const float closeDist = std::max(1e-6f, closeDistance);        // e.g. 0.05
+    //         const bool isClosed = (distance <= closeDist);
+    //
+    //         // Positive delta = opening, negative delta = closing
+    //         const float distanceDelta = static_cast<float>(m_lastDistance - distance);
+    //         constexpr float kDeadZoneThreshold = 0.1f;
+    //         const bool isDeadZone = (std::abs(distanceDelta) <= kDeadZoneThreshold);
+    //
+    //         // Determine direction, but only when we're outside the dead zone to avoid jitter
+    //         float direction = 0.0f; // 0 = steady/dead-zone, 1.0 = opening, -1.0 = closing
+    //         if (!isDeadZone)
+    //         {
+    //             direction = (distanceDelta < 0.0f) ? 1.0f : -1.0f;
+    //             // distanceDelta < 0  →  m_lastDistance < distance  →  opening  →  1.0
+    //             // distanceDelta > 0  →  m_lastDistance > distance  →  closing  → -1.0
+    //         }
+    //
+    //         if (isClosed)
+    //         {
+    //             // Closed: quickly bump up to 1 (engaged) — takes priority over direction
+    //             const float engageStep = 1.0f / std::max(1.0f, engageDurationFrames);
+    //             m_internalAnimVal = std::min(1.0f, m_internalAnimVal + engageStep);
+    //             m_closingHoldCounter = 0.0f;
+    //         }
+    //         else if (direction == -1.0f)
+    //         {
+    //             // Closing and not yet closed: count frames before releasing
+    //             m_closingHoldCounter += 1.0f;
+    //             if (m_closingHoldCounter >= releaseDurationFrames)
+    //             {
+    //                 const float releaseStep = 1.0f / std::max(1.0f, releaseDurationFrames);
+    //                 m_internalAnimVal = std::max(0.0f, m_internalAnimVal - releaseStep);
+    //             }
+    //             // else: preserve current value — not holding long enough yet
+    //         }
+    //         else
+    //         {
+    //             // Opening, steady, or in dead zone (and not closed): ramp back to 1 (engaged)
+    //             const float engageStep = 1.0f / std::max(1.0f, engageDurationFrames);
+    //             m_internalAnimVal = std::min(1.0f, m_internalAnimVal + engageStep);
+    //             m_closingHoldCounter = 0.0f;
+    //         }
+    //
+    //         m_internalAnimVal = std::clamp(m_internalAnimVal, 0.0f, 1.0f);
+    //         m_lastDistance = distance;
+    //
+    //     }
+    //
+    //     if (autoAnim)
+    //         stickyAmount = m_internalAnimVal;
+    //
+    // }
 
 
 
@@ -744,16 +880,26 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
 
     // Remove stickyness based on the angle between corner top-bottom + a portion of half arclen
-    // By computing the angle between A-A1 to B-B1 (and opposite) we should get a nice float to auto
-    // modulate the corner stickiness, that with distance based approaches alone is not enough
+    // By computing the angle between A-A1 to B-B1 (and opposite)
+    // We wre initially using this as deformer parameter to modulate the stickiness, but it revealed to be better
+    // for the internal aniation system
     //
     //     ___ A1 _____ C1 ___
     // A  /                   \  C
     //   *                     *
     // B  \___   ______    ___/  D
     //         B1       D1
-    if (cornerAutoRelax > 0.0)
+    // if (cornerAutoRelax) // old!
+    if (autoAnim)
     {
+
+        // Initialize the caches
+        m_lastDistances.resize(m_largerCount);
+        m_lastBlend.resize(m_largerCount);
+        m_isClosing.resize(m_largerCount);
+        m_perPointSticky.resize(m_largerCount);
+
+        // Create a 0-1 multiplier whithin the angle to drive the animation relaxation
         int leftCornerAngleIndex = -1;
         int rightCornerAngleIndex = -1;
 
@@ -777,10 +923,6 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         MVector endDirB = (smallerPoints[m_resampleOriginalIndex[m_largerCount-1]] - smallerPoints[m_resampleOriginalIndex[rightCornerAngleIndex]]).normal();
         double endSlopeDot = std::clamp(endDirA * endDirB, -1.0, 1.0);
         double endSlopeAngle = std::acos(endSlopeDot) * 90.0 / M_PI; // yes half angle!
-
-        // // Create a multiplier
-        // double startAngleInfluence = 1.0 - ((startSlopeDot + 1.0) / 2.0);
-        // double endAngleInfluence = 1.0 - ((endSlopeDot + 1.0) / 2.0);
 
         // // Create multipliers based on start-end angle ranges
         startAngleInfluence = std::clamp((startSlopeAngle - cornerAutoRelaxStartAngle) / (cornerAutoRelaxEndAngle - cornerAutoRelaxStartAngle), 0.0, 1.0);
@@ -810,28 +952,27 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
         const MVector& posB  = smallerPoints[smallerIdx];
 
         double cornerRelaxValue = 0;
-
-        // Simple distance base seal or corner relax enhanced
-        if (cornerAutoRelax > 0.0)
-        {
-            // distance from nearest end (symmetric)
-            double distFromEnd = std::min(m_arcLength[x], totalLength - m_arcLength[x]);
-
-            // Normalize it to arc-len and clamp to our corner area
-            double cornerAreaInfluence = std::max(0.0, 1.0 - (distFromEnd / cornerDistance));
-
-            // Get normalized position along the curve (0 = start, 1 = end)
-            double t = m_arcLength[x] / totalLength;
-
-            // Blend between start and end angles based on position (angle influence is 0 when closed, towards 1 when closed)
-            double targetAngle = (1.0 - t) * startAngleInfluence + t * endAngleInfluence;
-
-            // Now multiply it by the actual angle influence (0-1) and by the angle corner auto relax
-            // We will have a gradual value from 0 to 1, guided from the angle between at corners, blending towards the middle
-             cornerRelaxValue = std::pow(cornerAreaInfluence * targetAngle * cornerAutoRelax, 2);
-
-            // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
-        }
+        // // Simple distance base seal or corner relax enhanced
+        // if (cornerAutoRelax > 0.0)
+        // {
+        //     // distance from nearest end (symmetric)
+        //     double distFromEnd = std::min(m_arcLength[x], totalLength - m_arcLength[x]);
+        //
+        //     // Normalize it to arc-len and clamp to our corner area
+        //     double cornerAreaInfluence = std::max(0.0, 1.0 - (distFromEnd / cornerDistance));
+        //
+        //     // Get normalized position along the curve (0 = start, 1 = end)
+        //     double t = m_arcLength[x] / totalLength;
+        //
+        //     // Blend between start and end angles based on position (angle influence is 0 when closed, towards 1 when closed)
+        //     double targetAngle = (1.0 - t) * startAngleInfluence + t * endAngleInfluence;
+        //
+        //     // Now multiply it by the actual angle influence (0-1) and by the angle corner auto relax
+        //     // We will have a gradual value from 0 to 1, guided from the angle between at corners, blending towards the middle
+        //      cornerRelaxValue = std::pow(cornerAreaInfluence * targetAngle * cornerAutoRelax, 2);
+        //
+        //     // MGlobal::displayInfo(MString("Index: ") + x + " distVal " + distFromEnd + " influence: " + cornerAreaInfluence + " relax: " + cornerRelaxValue);
+        // }
 
         // Distance between A-B point to control general influence.. (maybe we can avoid real distance ans skip sqrt)
         double distanceFromMid = std::sqrt(std::pow((posA.x - posB.x), 2) +
@@ -839,10 +980,81 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
                                            std::pow((posA.z - posB.z), 2)
                                            );
 
+        if (frameChanged)
+        {
+            // Store the data of the direction std::vector<bool> m_isOpening;
+            // Store the last distance if std::vector<float> m_lastDistance;
+            // use std::vector<float> m_lastBlend;
+            // if last distance was closed, we can use full interpolation, otherwise, we use the last!
+            // const float closeDist = std::max(1e-6f, closeDistance);        // e.g. 0.05
+            //         const bool isClosed = (distance <= closeDist);
+
+            // On a new frame, record whether we're actively closing (not yet closed)
+            const float closeDist = std::max(1e-6f, closeDistance);
+            m_isClosing[x] = (distanceFromMid < m_lastDistances[x] && distanceFromMid > closeDist);
+
+
+            // Per-point sticky: gradually fades to 0 when lingering within stickyMaxThreshold, snaps up on close
+            const int halfIdx    = std::max(1, m_largerCount / 2);
+            const double middleDistance = m_lastDistances[halfIdx];
+            const float engageStep = 1.0f / std::max(1.0f, engageDurationFrames);
+            const float releaseStep = 1.0f / std::max(1.0f, releaseDurationFrames);
+
+
+            // Get normalized position along the curve (0 = start, 1 = end)
+            double t = m_arcLength[x] / totalLength;
+
+            // Blend between start and end angles based on position (angle influence is 0 when closed, towards 1 when closed)
+            double targetAngle = (1.0 - t) * startAngleInfluence + t * endAngleInfluence;
+            if (x == 3) DEBUG_PRINT(MString("ANGLE IS...") + targetAngle + " start at " + startAngleInfluence);
+
+
+            // Per point to resticky it
+            if (distanceFromMid <= closeDist)
+            {
+                // Closed: bump back to 1
+                m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep * 3.0f); // extra snappy
+                if (x == 3) DEBUG_PRINT(MString("WE ARE CLOSING!..."));
+            }
+
+            else if (targetAngle > 0.0f) // We are within the range
+            {
+                float stickyReleaseCurve = 1.0;
+                // Angle-based trigger: targetAngle is already 0-1 (influence, not degrees)
+                float animVal = std::clamp(static_cast<float>(targetAngle), 0.0f, 1.0f);
+                animVal = std::pow(animVal, 1.0f + stickyReleaseCurve * 10.0f);
+                m_perPointSticky[x] = std::max(0.0f, m_perPointSticky[x] - releaseStep * animVal);
+                if (x == 3) DEBUG_PRINT(MString("WE ARE RELEASING!...") + animVal);
+            }
+            else
+            {
+                // Low/zero angle: ramp back to 1
+                m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep);
+                if (x == 3) DEBUG_PRINT(MString("WE ARE OPENING"));
+            }
+
+
+            // else if (middleDistance >= stickyMinThreshold && middleDistance > closeDist)
+            // {
+            //     // Within sticky range: stronger fade near stickyMaxThreshold, weaker near stickyMinThreshold
+            //     float t = std::clamp(static_cast<float>((middleDistance - stickyMinThreshold) /
+            //         std::max(1e-6, static_cast<double>(stickyMaxThreshold - stickyMinThreshold))), 0.0f, 1.0f);
+            //     m_perPointSticky[x] = std::max(0.0f, m_perPointSticky[x] - releaseStep * t);
+            //     if (x == 3) DEBUG_PRINT(MString("WE ARE RELEASING...") + m_perPointSticky[x]);
+            // }
+            // else
+            // {
+            //     // Outside sticky range: ramp back to 1
+            //     m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep);
+            //     if (x == 3) DEBUG_PRINT(MString("RE ENGAGE..."));
+            // }
+        }
+
         // ------- seems controllable
         double range = stickyMaxThreshold - stickyMinThreshold;
-        double stickyMinRange = stickyMinThreshold - (range + (1.0 - stickyAmount)) - (cornerRelaxValue*2);   // Distance where stickiness starts (min range)
-        double stickyMaxRange = stickyMaxThreshold - (range + (1.0 - stickyAmount)) - (cornerRelaxValue*2);   // Distance where stickiness is maxed out (max range)
+        double stickyFullAmount = stickyAmount * stickyMaxThreshold; // Make sure we reach max to override the dist vals!
+        double stickyMinRange = stickyMinThreshold - (range + (1.0 - stickyFullAmount)) - (cornerRelaxValue*2);   // Distance where stickiness starts (min range)
+        double stickyMaxRange = stickyMaxThreshold - (range + (1.0 - stickyFullAmount)) - (cornerRelaxValue*2);   // Distance where stickiness is maxed out (max range)
 
         // Map distance to a 0-1 signal based on min/max range
         double blendValue = std::clamp(
@@ -853,6 +1065,15 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
 
         blendValue = std::pow(blendValue, stickySharpness + 1.0); // controls the curve make it up down
         blendVals[x] = blendValue;  // Store for blur pass in later stage
+
+        if (autoAnim)
+        {
+            if (m_isClosing[x])
+                blendVals[x] = m_lastBlend[x];
+            m_lastDistances[x] = distanceFromMid;
+            m_lastBlend[x] = blendVals[x];
+            blendVals[x] *= m_perPointSticky[x]; // apply per-point sticky fade
+        }
 
     }
 
