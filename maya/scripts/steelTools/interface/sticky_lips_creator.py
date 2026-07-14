@@ -924,5 +924,6 @@ class StickyLipsCreator:
                                      propagate_edge_tension=self.values_helper.propagate_edge_tension,
                                      )
 
+
         if self.has_window:
             self._on_close()

@@ -46,6 +46,8 @@ def create_sticky_lips(mesh_name: str,
         cmds.setAttr(f"{created_name}.edgeLoopNameA", upper_edge_component_tag, type='string')
         cmds.setAttr(f"{created_name}.edgeLoopNameB", lower_edge_component_tag, type='string')
 
+        cmds.connectAttr("time1.outTime", f"{created_name}.currentTime")
+
     except Exception as e:
         print(f"Error while creating Sticky Lips Deformer: {e}")
     finally:
