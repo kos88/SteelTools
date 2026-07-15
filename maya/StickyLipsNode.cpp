@@ -55,8 +55,8 @@ MObject StickyLipsNode::s_propagateTension;  // Blend between direction vector a
 MObject StickyLipsNode::s_propagateIterations; // How many loops we expand the weights from the main edge
 
 MObject StickyLipsNode::s_propagateHold;  // The amount of edge loops that are "holding" the same influence as the main
-MObject StickyLipsNode::s_propagateHoldTension;  // The amount of tension for the old loops
-MObject StickyLipsNode::s_propagateHoldInfluence;
+MObject StickyLipsNode::s_propagateHoldTension;  // The amount of tension for the affected area
+MObject StickyLipsNode::s_propagateHoldInfluence; // The localized tension around the sticky loop
 
 
 MObject StickyLipsNode::s_stickyAutoAnim;
@@ -236,12 +236,12 @@ MStatus StickyLipsNode::initialize() {
     addAttribute(s_stickyAutoAnim);
     attributeAffects(s_stickyAutoAnim, outputGeom);
 
-    s_releaseDurationFrames = nAttr.create("s_releaseDurationFrames", "rdf", MFnNumericData::kFloat, 3);
+    s_releaseDurationFrames = nAttr.create("releaseDurationFrames", "rdfr", MFnNumericData::kFloat, 3);
     nAttr.setKeyable(true);
     addAttribute(s_releaseDurationFrames);
     attributeAffects(s_releaseDurationFrames, outputGeom);
 
-    s_engageDurationFrames = nAttr.create("engageDurationFrames", "edf", MFnNumericData::kFloat, 3);
+    s_engageDurationFrames = nAttr.create("engageDurationFrames", "edfr", MFnNumericData::kFloat, 3);
     nAttr.setKeyable(true);
     addAttribute(s_engageDurationFrames);
     attributeAffects(s_engageDurationFrames, outputGeom);
@@ -309,7 +309,7 @@ global proc AEsteelStickyLipsTemplate( string $nodeName )
 
     // Main Sticky Controls
     editorTemplate -beginLayout "Sticky Controls" -collapse 0;
-        editorTemplate -annotation "0-1 value where lips seal together. Animate this for sticky behavior"
+        editorTemplate -annotation "Override of the influence, similar to an envelope but with seal effect when within thresholds."
             -addControl "stickyAmount";
         editorTemplate -annotation "Maximum distance where sticky effect begins"
             -addControl "maxThreshold";
@@ -317,33 +317,49 @@ global proc AEsteelStickyLipsTemplate( string $nodeName )
             -addControl "minThreshold";
         editorTemplate -annotation "Smoothness passes of the sticky edge. Similar to a gaussian blur."
             -addControl "edgeSmooth";
-        editorTemplate -annotation "Increase the decay influence between the sealed and unsealed areas"
-            -addControl "sharpness";
-    editorTemplate -endLayout;
-
-    // Corner Auto Relax
-    editorTemplate -beginLayout "Corner Auto Relax" -collapse 0;
-        editorTemplate -annotation "Main influence strength of corner relaxation (0-1)"
-            -addControl "cornerAutoRelax";
-        editorTemplate -annotation "Angle in degrees where corner relax begins (0-90)"
-            -addControl "autoRelaxStartAngle";
-        editorTemplate -annotation "Angle in degrees where corner relax reaches peak effect (0-90)"
-            -addControl "autoRelaxEndAngle";
-        editorTemplate -annotation "Percentage of half segment distance that corner relax propagates (0-1)"
-            -addControl "autoRelaxSegmentPortion";
+        editorTemplate -annotation "Control the decay curve of the released area"
+            -addControl "edgeRetract";
     editorTemplate -endLayout;
 
     // Propagation Settings
     editorTemplate -beginLayout "Propagation" -collapse 0;
-        editorTemplate -annotation "Number of edge loop where the influence expands from the main edge"
+        editorTemplate -annotation "Number of edge loops where the influence expands from the main edge"
             -addControl "propagateIterations";
         editorTemplate -annotation "Overall influence strength on surrounding edge loops (0-1)"
             -addControl "propagateInfluence";
-        editorTemplate -annotation "Number of edge loops around the main one to follow completely"
-            -addControl "holdLoops";
-        editorTemplate -annotation "Hold loops influence strength"
-            -addControl "holdInfluence";
+        editorTemplate -annotation "Tension applied to propagated edge loops to control the profile of the area pulled"
+            -addControl "propagateTension";
+        editorTemplate -annotation "Tension localized around the sticky edge, for finer control (0-1)"
+            -addControl "propagateEdgeTension";
+    editorTemplate -endLayout;
 
+    // Animation Controls
+    editorTemplate -beginLayout "Animation Controls" -collapse 0;
+        editorTemplate -annotation "Automatically animate sticky behavior when enabled"
+            -addControl "autoAnim";
+        editorTemplate -annotation "Current time used for animation playback"
+            -addControl "currentTime";
+        editorTemplate -annotation "Duration in frames for the release animation"
+            -addControl "releaseDurationFrames";
+        editorTemplate -annotation "Duration in frames for the engage animation"
+            -addControl "engageDurationFrames";
+        editorTemplate -annotation "Angle in degrees where release anim begins (0-90)"
+            -addControl "animRelaxStartAngle";
+        editorTemplate -annotation "Angle in degrees where release anim reaches peak effect (0-90)"
+            -addControl "animRelaxEndAngle";
+        editorTemplate -annotation "Percentage of half segment distance that release anim propagates (0-1)"
+            -addControl "animRelaxSegmentPortion";
+        editorTemplate -annotation "Distance threshold to determine the when lips stick again"
+            -addControl "closeDistance";
+
+        // Gray out animation controls when autoAnim is off (false/0)
+        editorTemplate -dimControl "currentTime" "autoAnim" false;
+        editorTemplate -dimControl "releaseDurationFrames" "autoAnim" false;
+        editorTemplate -dimControl "engageDurationFrames" "autoAnim" false;
+        editorTemplate -dimControl "animRelaxStartAngle" "autoAnim" false;
+        editorTemplate -dimControl "animRelaxEndAngle" "autoAnim" false;
+        editorTemplate -dimControl "animRelaxSegmentPortion" "autoAnim" false;
+        editorTemplate -dimControl "closeDistance" "autoAnim" false;
     editorTemplate -endLayout;
 
     // Edge Loop Setup
@@ -1051,8 +1067,11 @@ MStatus StickyLipsNode::deform(MDataBlock& block,
             }
             else
             {
-                // Low/zero angle: ramp back to 1
-                m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep);
+                // // Low/zero angle: ramp back to 1
+                // m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep);
+                // Low/zero angle: only ramp up if not fully released (stay unsticky once released)
+                if (m_perPointSticky[x] > 0.001f)
+                    m_perPointSticky[x] = std::min(1.0f, m_perPointSticky[x] + engageStep);
                 if (x == 3) DEBUG_PRINT(MString("WE ARE OPENING"));
             }
 
