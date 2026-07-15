@@ -483,12 +483,44 @@ class StickyLipsValues:
         self.settings_helper.set_value("edge_sharpness", value)
 
     @property
-    def corner_auto_relax(self) -> float:
-        return self.settings_helper.get_value("corner_auto_relax", 1.0)
+    def auto_anim(self) -> bool:
+        return self.settings_helper.get_value("auto_anim", False)
 
-    @corner_auto_relax.setter
-    def corner_auto_relax(self, value: float):
-        self.settings_helper.set_value("corner_auto_relax", value)
+    @auto_anim.setter
+    def auto_anim(self, value: bool):
+        self.settings_helper.set_value("auto_anim", value)
+
+    @property
+    def release_duration_frames(self) -> float:
+        return self.settings_helper.get_value("release_duration_frames", 10.0)
+
+    @release_duration_frames.setter
+    def release_duration_frames(self, value: float):
+        self.settings_helper.set_value("release_duration_frames", value)
+
+    @property
+    def engage_duration_frames(self) -> float:
+        return self.settings_helper.get_value("engage_duration_frames", 10.0)
+
+    @engage_duration_frames.setter
+    def engage_duration_frames(self, value: float):
+        self.settings_helper.set_value("engage_duration_frames", value)
+
+    @property
+    def anim_relax_segment_portion(self) -> float:
+        return self.settings_helper.get_value("anim_relax_segment_portion", 0.5)
+
+    @anim_relax_segment_portion.setter
+    def anim_relax_segment_portion(self, value: float):
+        self.settings_helper.set_value("anim_relax_segment_portion", value)
+
+    @property
+    def close_distance(self) -> float:
+        return self.settings_helper.get_value("close_distance", 0.5)
+
+    @close_distance.setter
+    def close_distance(self, value: float):
+        self.settings_helper.set_value("close_distance", value)
 
     @property
     def corner_auto_relax_start_angle(self) -> float:
@@ -567,6 +599,7 @@ class StickyLipsCreator:
 
         self._build_selection_area()
         self._build_deformer_options()
+        self._build_auto_anim_options()
         self._build_tag_names_options()
         self._build_buttons(main_form, scroll)
 
@@ -587,15 +620,19 @@ class StickyLipsCreator:
         self.values_helper.edge_smooth = cmds.floatSliderGrp(self.sticky_smooth_slider, query=True, value=True)
         self.values_helper.edge_sharpness = cmds.floatSliderGrp(self.sticky_sharp_slider, query=True, value=True)
 
-        corner_relax_active = cmds.checkBoxGrp(self.use_corner_relax_check_box, query=True, value1=True)
-        self.values_helper.corner_auto_relax = cmds.floatSliderGrp(self.corner_auto_relax_slider, query=True, value=True) if corner_relax_active else 0.0
-        self.values_helper.corner_auto_relax_start_angle = cmds.floatSliderGrp(self.auto_relax_start_slider, query=True, value=True)
-        self.values_helper.corner_auto_relax_end_angle = cmds.floatSliderGrp(self.auto_relax_end_slider, query=True, value=True)
-
         self.values_helper.propagate_amount = cmds.intSliderGrp(self.grow_amount_slider, query=True, value=True)
         self.values_helper.propagate_hold = cmds.intSliderGrp(self.tension_amount_slider, query=True, value=True)
         self.values_helper.propagate_influence = cmds.floatSliderGrp(self.influence_amount_slider, query=True, value=True)
         self.values_helper.propagate_hold_influence = cmds.floatSliderGrp(self.influence_amount_slider, query=True, value=True)
+
+        self.values_helper.auto_anim = cmds.checkBoxGrp(self.auto_anim_check_box, query=True, value1=True)
+        self.values_helper.release_duration_frames = cmds.floatSliderGrp(self.auto_release_duration_slider, query=True, value=True)
+        self.values_helper.engage_duration_frames = cmds.floatSliderGrp(self.auto_engage_duration_slider, query=True, value=True)
+        self.values_helper.anim_relax_start_angle = cmds.floatSliderGrp(self.auto_relax_start_slider, query=True, value=True)
+        self.values_helper.anim_relax_end_angle = cmds.floatSliderGrp(self.auto_relax_end_slider, query=True, value=True)
+        self.values_helper.anim_relax_segment_portion = cmds.floatSliderGrp(self.auto_relax_segment_slider, query=True, value=True)
+        self.values_helper.close_distance = cmds.floatSliderGrp(self.auto_close_distance_slider, query=True, value=True)
+
 
     def _build_selection_area(self):
         cmds.text(label="Setup Area", font="boldLabelFont", align="left")
@@ -689,7 +726,7 @@ class StickyLipsCreator:
         )
 
         self.sticky_sharp_slider = cmds.floatSliderGrp(
-            label="Sticky Edge Sharpness: ",
+            label="Sticky Edge Retract: ",
             field=True,
             minValue=self.values_helper.edge_sharpness,
             fieldMinValue=0.0,
@@ -702,47 +739,6 @@ class StickyLipsCreator:
         cmds.separator(height=15, style="in")
 
 
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
-
-        cmds.separator(height=5, style="none")
-        self.use_corner_relax_check_box = cmds.checkBoxGrp(
-            label="Corner Auto Relax",
-            value1=True,
-            columnWidth=[(1, 150)],
-            changeCommand=self._on_advanced_toggle
-        )
-
-        cmds.separator(height=5, style="none")
-
-        self.corner_auto_relax_slider = cmds.floatSliderGrp(
-            label="Corner Auto Relax: ",
-            field=True,
-            minValue=0,
-            maxValue=1.0,
-            value=self.values_helper.corner_auto_relax,
-            step=0.1,
-            columnWidth=[(1, 140), (2, 60), (3, 180)]
-        )
-
-        self.auto_relax_start_slider = cmds.floatSliderGrp(
-            label="Relax Start Angle: ",
-            field=True,
-            minValue=0.0,
-            maxValue=90.0,
-            value=self.values_helper.corner_auto_relax_start_angle,
-            columnWidth=[(1, 140), (2, 60), (3, 180)]
-        )
-
-        self.auto_relax_end_slider = cmds.floatSliderGrp(
-            label="Relax End Angle: ",
-            field=True,
-            minValue=0.0,
-            maxValue=90.0,
-            value=self.values_helper.corner_auto_relax_end_angle,
-            columnWidth=[(1, 140), (2, 60), (3, 180)]
-        )
-
-        cmds.separator(height=15, style="in")
         self.influence_amount_slider = cmds.floatSliderGrp(
             label="Propagate Influence: ",
             field=True,
@@ -775,6 +771,90 @@ class StickyLipsCreator:
         cmds.setParent("..")
         cmds.setParent("..")
 
+    def _build_auto_anim_options(self):
+        cmds.frameLayout(
+            "autoAnimGroup",
+            label="Auto Animation",
+            collapsable=True,
+            collapse=False
+        )
+
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+
+        cmds.separator(height=5, style="none")
+        self.auto_anim_check_box = cmds.checkBoxGrp(
+            label="Enable Auto Animation",
+            value1=self.values_helper.auto_anim,
+            columnWidth=[(1, 150)],
+            changeCommand=self._on_auto_anim_toggle
+        )
+
+        cmds.separator(height=5, style="none")
+
+        self.auto_release_duration_slider = cmds.floatSliderGrp(
+            label="Release Duration (frames): ",
+            field=True,
+            minValue=1.0,
+            maxValue=100.0,
+            value=self.values_helper.release_duration_frames,
+            step=1.0,
+            columnWidth=[(1, 160), (2, 60), (3, 180)]
+        )
+
+        self.auto_engage_duration_slider = cmds.floatSliderGrp(
+            label="Engage Duration (frames): ",
+            field=True,
+            minValue=1.0,
+            maxValue=100.0,
+            value=self.values_helper.engage_duration_frames,
+            step=1.0,
+            columnWidth=[(1, 160), (2, 60), (3, 180)]
+        )
+
+        cmds.separator(height=10, style="in")
+
+        self.auto_relax_start_slider = cmds.floatSliderGrp(
+            label="Relax Start Angle: ",
+            field=True,
+            minValue=0.0,
+            maxValue=90.0,
+            value=self.values_helper.corner_auto_relax_start_angle,
+            columnWidth=[(1, 160), (2, 60), (3, 180)]
+        )
+
+        self.auto_relax_end_slider = cmds.floatSliderGrp(
+            label="Relax End Angle: ",
+            field=True,
+            minValue=0.0,
+            maxValue=90.0,
+            value=self.values_helper.corner_auto_relax_end_angle,
+            columnWidth=[(1, 160), (2, 60), (3, 180)]
+        )
+
+        self.auto_relax_segment_slider = cmds.floatSliderGrp(
+            label="Relax Segment Portion: ",
+            field=True,
+            minValue=0.0,
+            maxValue=1.0,
+            value=self.values_helper.anim_relax_segment_portion,
+            step=0.05,
+            columnWidth=[(1, 160), (2, 60), (3, 180)]
+        )
+
+        cmds.separator(height=10, style="in")
+
+        self.auto_close_distance_slider = cmds.floatSliderGrp(
+            label="Close Distance: ",
+            field=True,
+            minValue=0.0,
+            maxValue=10.0,
+            value=self.values_helper.close_distance,
+            step=0.05,
+            columnWidth=[(1, 160), (2, 60), (3, 180)]
+        )
+
+        cmds.setParent("..")
+        cmds.setParent("..")
 
     def _build_tag_names_options(self):
         cmds.frameLayout(label="Component Tag Names", collapsable=True)
@@ -812,11 +892,14 @@ class StickyLipsCreator:
     # ------------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------------
-    def _on_advanced_toggle(self, checked):
-        state = cmds.checkBoxGrp(self.use_corner_relax_check_box, query=True, value1=True)
+    def _on_auto_anim_toggle(self, checked):
+        state = cmds.checkBoxGrp(self.auto_anim_check_box, query=True, value1=True)
+        cmds.floatSliderGrp(self.auto_release_duration_slider, edit=True, enable=state)
+        cmds.floatSliderGrp(self.auto_engage_duration_slider, edit=True, enable=state)
         cmds.floatSliderGrp(self.auto_relax_start_slider, edit=True, enable=state)
         cmds.floatSliderGrp(self.auto_relax_end_slider, edit=True, enable=state)
-        cmds.floatSliderGrp(self.corner_auto_relax_slider, edit=True, enable=state)
+        cmds.floatSliderGrp(self.auto_relax_segment_slider, edit=True, enable=state)
+        cmds.floatSliderGrp(self.auto_close_distance_slider, edit=True, enable=state)
 
     def _on_grow_amount_change(self, *args):
         amount = cmds.intSliderGrp(self.grow_amount_slider, query=True, value=True)
@@ -914,9 +997,13 @@ class StickyLipsCreator:
                                      edge_smooth=self.values_helper.edge_smooth,
                                      edge_sharpness=self.values_helper.edge_sharpness,
 
-                                     corner_auto_relax=self.values_helper.corner_auto_relax,
-                                     auto_relax_start_angle=self.values_helper.corner_auto_relax_start_angle,
-                                     auto_relax_end_angle=self.values_helper.corner_auto_relax_end_angle,
+                                     auto_anim=self.values_helper.auto_anim,
+                                     release_duration_frames=self.values_helper.release_duration_frames,
+                                     engage_duration_frames=self.values_helper.engage_duration_frames,
+                                     anim_relax_start_angle=self.values_helper.corner_auto_relax_start_angle,
+                                     anim_relax_end_angle=self.values_helper.corner_auto_relax_end_angle,
+                                     anim_relax_segment_portion=self.values_helper.anim_relax_segment_portion,
+                                     close_distance=self.values_helper.close_distance,
 
                                      propagate_iterations=self.values_helper.propagate_amount,
                                      propagate_influence=self.values_helper.propagate_influence,

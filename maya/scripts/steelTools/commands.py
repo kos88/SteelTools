@@ -13,9 +13,13 @@ def create_sticky_lips(mesh_name: str,
                        edge_smooth: float = 5.0,
                        edge_sharpness: float = 1.0,
 
-                       corner_auto_relax: float = 1.0,
-                       auto_relax_start_angle: float = 20.0,
-                       auto_relax_end_angle: float = 45.0,
+                       auto_anim: bool = False,
+                       release_duration_frames: float = 10.0,
+                       engage_duration_frames: float = 10.0,
+                       anim_relax_start_angle: float = 20.0,
+                       anim_relax_end_angle: float = 45.0,
+                       anim_relax_segment_portion: float = 0.5,
+                       close_distance: float = 0.5,
 
                        propagate_iterations=4,
                        propagate_influence=1.0,
@@ -26,6 +30,8 @@ def create_sticky_lips(mesh_name: str,
     cmds.undoInfo(openChunk=True)
     try:
         created_name = cmds.deformer(mesh_name, type="steelStickyLips", useComponentTags=True)[0]
+
+        # Main Sticky Controls
         cmds.setAttr(f"{created_name}.stickyAmount", sticky_amount)
         cmds.setAttr(f"{created_name}.maxThreshold", max_threshold)
         cmds.setAttr(f"{created_name}.minThreshold", min_threshold)
@@ -33,15 +39,23 @@ def create_sticky_lips(mesh_name: str,
         cmds.setAttr(f"{created_name}.edgeRetract", edge_sharpness)
         cmds.setAttr(f"{created_name}.edgeSmooth", edge_smooth)
 
-        # cmds.setAttr(f"{created_name}.cornerAutoRelax", corner_auto_relax)
-        # cmds.setAttr(f"{created_name}.autoRelaxStartAngle", auto_relax_start_angle)
-        # cmds.setAttr(f"{created_name}.autoRelaxEndAngle", auto_relax_end_angle)
 
+        # Propagation Settings
         cmds.setAttr(f"{created_name}.propagateIterations", propagate_iterations)
         cmds.setAttr(f"{created_name}.propagateInfluence", propagate_influence)
         cmds.setAttr(f"{created_name}.propagateTension", propagate_tension)
         cmds.setAttr(f"{created_name}.propagateEdgeTension", propagate_edge_tension)
 
+        # Animation Controls
+        cmds.setAttr(f"{created_name}.autoAnim", auto_anim)
+        cmds.setAttr(f"{created_name}.releaseDurationFrames", release_duration_frames)
+        cmds.setAttr(f"{created_name}.engageDurationFrames", engage_duration_frames)
+        cmds.setAttr(f"{created_name}.animRelaxStartAngle", anim_relax_start_angle)
+        cmds.setAttr(f"{created_name}.animRelaxEndAngle", anim_relax_end_angle)
+        cmds.setAttr(f"{created_name}.animRelaxSegmentPortion", anim_relax_segment_portion)
+        cmds.setAttr(f"{created_name}.closeDistance", close_distance)
+
+        # Component Tags
         cmds.setAttr(f"{created_name}.input[0].componentTagExpression", area_component_tag, type='string')
         cmds.setAttr(f"{created_name}.edgeLoopNameA", upper_edge_component_tag, type='string')
         cmds.setAttr(f"{created_name}.edgeLoopNameB", lower_edge_component_tag, type='string')
